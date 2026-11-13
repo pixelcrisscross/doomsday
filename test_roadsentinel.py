@@ -1,5 +1,5 @@
 """
-RoadSentinel Automated Test Suite — 13 Tests
+RoadSentinel Automated Test Suite — 16 Tests
 Covers:
   1.  Model loading & hardware status
   2.  Video metadata & format validation
@@ -14,6 +14,9 @@ Covers:
   11. Manual verification workflow
   12. Progress comparison (trend detection)
   13. CSV export (stdlib csv, no pandas)
+  14. Real Damage Severity Classification (Visual 2D Proxy)
+  15. GPS, EXIF & Video Location Metadata (GPX Sidecar, No Hardcoded Fallbacks)
+  16. Local File-Based Inspection Store (Atomic JSON, No Database)
 
 No network calls. No Gemini API calls. No fake data.
 """
@@ -21,6 +24,8 @@ No network calls. No Gemini API calls. No fake data.
 import os
 import sys
 import csv
+import io
+import json
 import logging
 from pathlib import Path
 
@@ -36,6 +41,9 @@ import tracker as tr
 import risk_scorer as rs
 import duplicate_detector as dd
 import progress_monitor as pm
+import severity_classifier as sc
+import location_metadata as lm
+import inspection_store as istore
 import app
 
 
@@ -162,7 +170,6 @@ def test_4_video_processing():
 # =========================================================
 def test_5_download_bytes():
     out_dir = "outputs"
-    # Find most recent annotated video
     videos = sorted(Path(out_dir).glob("*_annotated_*.mp4"), key=os.path.getmtime, reverse=True)
     _check(len(videos) > 0, f"At least one annotated video found in {out_dir}")
     target = str(videos[0])
@@ -198,7 +205,6 @@ def test_7_gemini_independence():
     _check("pothole_count" in result, "validate_with_gemini returns dict with pothole_count key")
     _info(f"Offline response: {result}")
 
-    # Ensure full pipeline runs without Gemini
     summary = _saved_summary if _saved_summary else {"status": "completed"}
     _check(summary.get("status") == "completed", "Video detection pipeline is Gemini-independent")
 
@@ -216,7 +222,7 @@ def test_8_tracking():
         output_dir=out_dir,
         models=models,
         conf_threshold=0.15,
-        frame_skip=3  # faster for test
+        frame_skip=3
     )
     unique_count = summary.get("unique_hazard_count")
     total = summary.get("total_detections", 0)
@@ -224,11 +230,9 @@ def test_8_tracking():
 
     _check(unique_count is not None, "unique_hazard_count is present in summary")
     _check(unique_count <= total, f"unique_hazard_count ({unique_count}) <= total_detections ({total})")
-    # If detections exist, unique count must be > 0
     if total > 0:
         _check(unique_count > 0, f"unique_hazard_count > 0 when detections exist")
 
-    # Also test SimpleTracker directly
     tracker = tr.SimpleTracker()
     fake_dets = [
         {"class_name": "Pothole", "box": [10, 10, 60, 60], "confidence": 0.9, "area_pixels": 2500},
@@ -238,14 +242,12 @@ def test_8_tracking():
     _check(all("track_id" in d for d in out1), "track_id assigned to all detections in frame 0")
     _check(tracker.unique_count == 2, f"unique_count == 2 after first frame (got {tracker.unique_count})")
 
-    # Same boxes next frame → same IDs
     out2 = tracker.update(fake_dets, 1)
     ids1 = {d["track_id"] for d in out1}
     ids2 = {d["track_id"] for d in out2}
     _check(ids1 == ids2, f"Track IDs maintained across frames: {ids1} == {ids2}")
     _check(tracker.unique_count == 2, "No new unique IDs assigned for matched detections")
 
-    # New box far away → new ID
     new_det = [{"class_name": "Pothole", "box": [800, 400, 860, 460], "confidence": 0.7, "area_pixels": 3600}]
     out3 = tracker.update(new_det, 2)
     _check(tracker.unique_count == 3, f"New distant detection assigned new ID (unique_count=3, got {tracker.unique_count})")
@@ -255,7 +257,6 @@ def test_8_tracking():
 # TEST 9 — Duplicate Report Detection
 # =========================================================
 def test_9_duplicates():
-    # Create two similar reports
     rep_a = {
         "location": "Rani Chennamma Nagar, Belagavi",
         "date": "12 Nov 2026",
@@ -274,7 +275,6 @@ def test_9_duplicates():
         "transverse_cracks": 0,
         "alligator_cracks": 0,
     }
-    # Completely different report
     rep_c = {
         "location": "MG Road, Pune",
         "date": "01 Jan 2025",
@@ -290,7 +290,6 @@ def test_9_duplicates():
 
     _info(f"Similarity A-B (same location): {sim_ab['score']:.3f} → {'DUPLICATE' if sim_ab['is_duplicate'] else 'unique'}")
     _info(f"Similarity A-C (different location): {sim_ac['score']:.3f}")
-    _info(f"Reasons A-B: {sim_ab['reasons']}")
 
     _check(sim_ab["is_duplicate"], f"A-B flagged as duplicate (score={sim_ab['score']:.3f} >= 0.60)")
     _check(not sim_ac["is_duplicate"], f"A-C not flagged as duplicate (score={sim_ac['score']:.3f})")
@@ -305,11 +304,10 @@ def test_9_duplicates():
 # TEST 10 — Risk Scoring
 # =========================================================
 def test_10_risk_scoring():
-    # High-confidence large pothole → should be Critical or High
     pothole_det = {
         "class_name": "Pothole",
         "confidence": 0.95,
-        "area_pixels": 60000,  # above normalizer → area_factor capped at 1.0
+        "area_pixels": 60000,
     }
     pothole_risk = rs.compute_risk(pothole_det)
     _info(f"Pothole risk: score={pothole_risk['score']}, category={pothole_risk['category']}")
@@ -319,25 +317,22 @@ def test_10_risk_scoring():
            f"Category is High or Critical (got '{pothole_risk['category']}')")
     _check(len(pothole_risk["factors"]) >= 3, "At least 3 contributing factors explained")
 
-    # Low-confidence tiny longitudinal crack → should be Low
     crack_det = {
         "class_name": "Longitudinal Crack",
         "confidence": 0.25,
-        "area_pixels": 500,  # very small
+        "area_pixels": 500,
     }
     crack_risk = rs.compute_risk(crack_det)
     _info(f"Tiny crack risk: score={crack_risk['score']}, category={crack_risk['category']}")
     _check(crack_risk["category"] == "Low",
            f"Tiny crack is Low risk (got '{crack_risk['category']}')")
 
-    # Video summary
     detections = [pothole_det, crack_det]
     summary = rs.compute_video_risk_summary(detections)
     _check("distribution" in summary, "Video risk summary has 'distribution' key")
     _check("disclaimer" in summary, "Risk summary includes disclaimer")
     _check(summary["total_scored"] == 2, "Total scored == 2")
 
-    # enrich_detection_with_risk
     test_det = {"class_name": "Alligator Crack", "confidence": 0.7, "area_pixels": 20000}
     rs.enrich_detection_with_risk(test_det)
     _check("risk_score" in test_det and "risk_category" in test_det,
@@ -360,38 +355,30 @@ def test_11_verification():
     }
     app._init_report_defaults(rep)
 
-    # Initial state
-    _check(rep["verification_status"] == "AI_PENDING",
-           "New report defaults to AI_PENDING")
-    _check(rep["original_ai_prediction"]["potholes"] == 2,
-           "Original AI prediction preserved (potholes=2)")
+    _check(rep["verification_status"] == "AI_PENDING", "New report defaults to AI_PENDING")
+    _check(rep["original_ai_prediction"]["potholes"] == 2, "Original AI prediction preserved (potholes=2)")
 
-    # Verify
     rep["verification_status"] = "VERIFIED"
     rep["verified_by"] = "Inspector"
     rep["verified_at"] = "14 Nov 2026, 10:00"
     _check(rep["verification_status"] == "VERIFIED", "Status → VERIFIED")
     _check(rep["verified_by"] == "Inspector", "verified_by set")
-    _check(rep["original_ai_prediction"]["potholes"] == 2,
-           "Original prediction still intact after verification")
+    _check(rep["original_ai_prediction"]["potholes"] == 2, "Original prediction still intact after verification")
 
-    # Reject another report
     rep2 = dict(rep)
     rep2["verification_status"] = "REJECTED"
     rep2["rejection_reason"] = "No damage visible in re-inspection"
     _check(rep2["verification_status"] == "REJECTED", "Status → REJECTED")
     _check(rep2["rejection_reason"], "Rejection reason recorded")
 
-    # Correct damage class
     rep3 = dict(rep)
     rep3["verification_status"] = "AI_PENDING"
     app._init_report_defaults(rep3)
     rep3["corrected_class"] = "Alligator Crack"
-    rep3["corrected_severity"] = "Severe"
+    rep3["corrected_severity"] = "SEVERE"
     rep3["verification_status"] = "VERIFIED"
     _check(rep3["corrected_class"] == "Alligator Crack", "Corrected class recorded")
-    _check(rep3["original_ai_prediction"]["potholes"] == 2,
-           "Original prediction preserved after correction")
+    _check(rep3["original_ai_prediction"]["potholes"] == 2, "Original prediction preserved after correction")
 
 
 # =========================================================
@@ -431,20 +418,15 @@ def test_12_progress():
     _info(f"Better trend: {comp_better['trend']}")
     _info(f"Unchanged trend: {comp_same['trend']}")
 
-    _check(comp_worse["trend"] == "WORSENING",
-           f"Trend is WORSENING (got '{comp_worse['trend']}')")
-    _check(comp_better["trend"] == "IMPROVING",
-           f"Trend is IMPROVING (got '{comp_better['trend']}')")
-    _check(comp_same["trend"] == "UNCHANGED",
-           f"Trend is UNCHANGED (got '{comp_same['trend']}')")
+    _check(comp_worse["trend"] == "WORSENING", f"Trend is WORSENING (got '{comp_worse['trend']}')")
+    _check(comp_better["trend"] == "IMPROVING", f"Trend is IMPROVING (got '{comp_better['trend']}')")
+    _check(comp_same["trend"] == "UNCHANGED", f"Trend is UNCHANGED (got '{comp_same['trend']}')")
 
-    # Test find_location_history
     history = [older, newer_worse, {"location": "MG Road, Pune", "date": "14 Nov 2026",
                                      "final_potholes": 1, "final_cracks": 0}]
     matched = pm.find_location_history("NH-48 Bypass, Belagavi", history)
     _check(len(matched) >= 2, f"find_location_history found {len(matched)} matches")
 
-    # Test insufficient data
     single = pm.get_progress_report([older])
     _check(len(single) == 1, "Single-report cluster returned")
     _check(single[0]["comparison"]["trend"] == "INSUFFICIENT_DATA",
@@ -457,15 +439,20 @@ def test_12_progress():
 def test_13_csv_export():
     history = [
         {
+            "inspection_id": "RS-20261114-TEST1",
             "type": "Photo Inspection",
             "date": "14 Nov 2026",
             "location": "Test Location",
+            "latitude": 15.8497,
+            "longitude": 74.4977,
+            "location_source": "MANUAL",
             "final_potholes": 2,
             "final_cracks": 3,
             "longitudinal_cracks": 2,
             "transverse_cracks": 1,
             "alligator_cracks": 0,
             "avg_conf": "72.3%",
+            "overall_severity": "MODERATE",
             "verification_status": "VERIFIED",
             "risk_category": "Medium",
             "duplicate_status": None,
@@ -475,49 +462,210 @@ def test_13_csv_export():
     csv_bytes = app._make_csv_bytes(history)
     _check(len(csv_bytes) > 0, f"CSV bytes non-empty ({len(csv_bytes)} bytes)")
 
-    # Parse to verify structure
-    import io
     decoded = csv_bytes.decode("utf-8")
     reader = csv.DictReader(io.StringIO(decoded))
     rows = list(reader)
     _check(len(rows) == 1, f"CSV has 1 data row (got {len(rows)})")
-    _check("Report #" in rows[0], "CSV has 'Report #' column")
+    _check("Inspection ID" in rows[0], "CSV has 'Inspection ID' column")
     _check("Location" in rows[0], "CSV has 'Location' column")
     _check(rows[0]["Potholes"] == "2", f"Potholes == '2' (got '{rows[0]['Potholes']}')")
-    _check(rows[0]["Verification Status"] == "VERIFIED",
-           "Verification status correctly exported")
+    _check(rows[0]["Verification Status"] == "VERIFIED", "Verification status correctly exported")
     _info(f"CSV headers: {list(rows[0].keys())}")
 
-    # Verify no pandas import in csv bytes generation
-    # (structural test: app._make_csv_bytes must work without pandas)
-    import importlib
-    spec = importlib.util.find_spec("pandas")
-    # Even if pandas is installed, it must NOT be imported in app.py
     app_source = Path("app.py").read_text()
     _check("import pandas" not in app_source,
            "No 'import pandas' in app.py — pandas-free implementation confirmed")
 
 
 # =========================================================
+# TEST 14 — Damage Severity Classification Engine
+# =========================================================
+def test_14_severity_classification():
+    # Large pothole in 1000x1000 frame: 250x250 = 62,500 px² = 6.25% of frame -> CRITICAL
+    pot_crit = sc.classify_defect_severity(
+        class_name="Pothole",
+        box=[100, 100, 350, 350],
+        frame_width=1000,
+        frame_height=1000,
+        confidence=0.88
+    )
+    _info(f"Large Pothole Severity: {pot_crit['severity_category']} (Score: {pot_crit['severity_score']})")
+    _check(pot_crit["severity_category"] == "CRITICAL",
+           f"Large pothole classified as CRITICAL (got '{pot_crit['severity_category']}')")
+    _check(pot_crit["confidence"] == 0.88, "Original model confidence preserved")
+    _check("disclaimer" in pot_crit, "Visual estimate disclaimer present")
+    _check(pot_crit["relative_area_pct"] > 3.0, f"Relative area {pot_crit['relative_area_pct']}% > 3.0%")
+
+    # Small pothole in 1000x1000 frame: 30x30 = 900 px² = 0.09% of frame -> MINOR
+    pot_minor = sc.classify_defect_severity(
+        class_name="Pothole",
+        box=[10, 10, 40, 40],
+        frame_width=1000,
+        frame_height=1000,
+        confidence=0.65
+    )
+    _info(f"Small Pothole Severity: {pot_minor['severity_category']} (Score: {pot_minor['severity_score']})")
+    _check(pot_minor["severity_category"] == "MINOR",
+           f"Small pothole classified as MINOR (got '{pot_minor['severity_category']}')")
+
+    # Long Transverse Crack: thin area (10px) but wide span (400px across 1000px width = 40% span) -> CRITICAL
+    trans_crit = sc.classify_defect_severity(
+        class_name="Transverse Crack",
+        box=[50, 300, 450, 310],
+        frame_width=1000,
+        frame_height=1000,
+        confidence=0.75
+    )
+    _info(f"Long Transverse Crack Severity: {trans_crit['severity_category']} (Span: {trans_crit['max_span_pct']}%)")
+    _check(trans_crit["severity_category"] == "CRITICAL",
+           f"Transverse crack spanning 40% of road corridor is CRITICAL (got '{trans_crit['severity_category']}')")
+
+    # Test aggregate summary
+    summary = sc.compute_severity_summary([pot_crit, pot_minor, trans_crit])
+    _check(summary["overall_severity"] == "CRITICAL", "Overall severity correctly identified as CRITICAL")
+    _check(summary["breakdown"]["CRITICAL"] == 2, "Breakdown reports 2 CRITICAL defects")
+    _check(summary["breakdown"]["MINOR"] == 1, "Breakdown reports 1 MINOR defect")
+    _info(f"Severity Breakdown: {summary['breakdown']}")
+
+
+# =========================================================
+# TEST 15 — Location & GPS Metadata (No Hardcoded Fallbacks)
+# =========================================================
+def test_15_location_metadata():
+    # 1. Image without GPS must return 'Location unavailable' without inventing locations
+    test_img = Image.new("RGB", (100, 100), color="gray")
+    meta_no_gps = lm.extract_image_location_metadata(test_img)
+    _info(f"Image without GPS result: {meta_no_gps['address']} (source: {meta_no_gps['location_source']})")
+    _check(meta_no_gps["address"] == "Location unavailable",
+           "Image without EXIF GPS explicitly returns 'Location unavailable'")
+    _check(meta_no_gps["latitude"] is None and meta_no_gps["longitude"] is None,
+           "Coordinates are strictly None when absent")
+
+    # 2. Check that hardcoded Belagavi fallback is not in location_metadata
+    code = Path("location_metadata.py").read_text()
+    _check("Rani Chennamma" not in code, "No hardcoded 'Rani Chennamma' in location_metadata.py")
+
+    # 3. GPX Parser Test with synthetic valid GPX string
+    sample_gpx = """<?xml version="1.0" encoding="UTF-8"?>
+    <gpx version="1.1" creator="SurveyDevice">
+      <trk>
+        <trkseg>
+          <trkpt lat="15.849722" lon="74.497711">
+            <ele>650.5</ele>
+            <time>2026-11-14T08:00:00Z</time>
+          </trkpt>
+          <trkpt lat="15.850100" lon="74.498200">
+            <ele>651.0</ele>
+            <time>2026-11-14T08:00:10Z</time>
+          </trkpt>
+        </trkseg>
+      </trk>
+    </gpx>"""
+
+    pts = lm.parse_gpx_file(sample_gpx)
+    _check(len(pts) == 2, f"Parsed 2 GPX trackpoints (got {len(pts)})")
+    _check(abs(pts[0]["latitude"] - 15.849722) < 1e-5, "Preserves full floating-point coordinate precision")
+    _check(pts[0]["elevation_m"] == 650.5, "Elevation parsed accurately")
+
+    # 4. GPX Video Synchronization Test
+    # Point at 5 seconds elapsed (interpolated halfway between 0s and 10s)
+    synced = lm.match_video_timestamp_to_gpx(video_timestamp_sec=5.0, gpx_points=pts, sync_offset_sec=0.0)
+    _info(f"GPX Sync @ 5s: {synced['latitude']:.6f}, {synced['longitude']:.6f} ({synced['sync_quality']})")
+    _check(synced["sync_quality"] == "INTERPOLATED", "5s is INTERPOLATED between points")
+    expected_lat = (15.849722 + 15.850100) / 2.0
+    _check(abs(synced["latitude"] - expected_lat) < 1e-5, "Interpolated coordinates match midpoint")
+
+
+# =========================================================
+# TEST 16 — Local File-Based Inspection Store (No Database)
+# =========================================================
+def test_16_inspection_store():
+    test_store_path = Path("data/test_inspections_tmp.json")
+    if test_store_path.exists():
+        test_store_path.unlink()
+
+    try:
+        # 1. Save new inspection
+        rec = {
+            "type": "Photo Inspection",
+            "media_type": "photo",
+            "media_filename": "survey_01.jpg",
+            "location": "NH-48 Corridor",
+            "latitude": 15.8497,
+            "longitude": 74.4977,
+            "location_source": "MANUAL",
+            "summary": {
+                "pothole_count": 3,
+                "crack_count": 2,
+                "overall_severity": "SEVERE",
+                "risk_category": "High"
+            },
+            "detections": [
+                {"class_name": "Pothole", "severity_category": "SEVERE", "confidence": 0.89}
+            ]
+        }
+        rec_id = istore.save_inspection(rec, store_path=test_store_path)
+        _info(f"Saved inspection with ID: {rec_id}")
+        _check(rec_id.startswith("RS-"), f"Generated ID format valid ({rec_id})")
+        _check(test_store_path.exists(), "Storage file data/test_inspections_tmp.json created on disk")
+
+        # 2. Get inspection
+        fetched = istore.get_inspection(rec_id, store_path=test_store_path)
+        _check(fetched is not None, "Record successfully retrieved by ID")
+        _check(fetched["summary"]["pothole_count"] == 3, "Pothole count accurately persisted")
+        _check(fetched["verification"]["status"] == "AI_PENDING", "Verification status initialized to AI_PENDING")
+
+        # 3. Update inspection (Inspector Verification)
+        updated = istore.update_inspection(
+            rec_id,
+            {"verification": {"status": "VERIFIED", "verified_by": "Field Inspector #4", "corrected_severity": "CRITICAL"}},
+            store_path=test_store_path
+        )
+        _check(updated, "Record update returned True")
+
+        fetched_after = istore.get_inspection(rec_id, store_path=test_store_path)
+        _check(fetched_after["verification"]["status"] == "VERIFIED", "Updated status to VERIFIED")
+        _check(fetched_after["verification"]["verified_by"] == "Field Inspector #4", "Inspector identity saved")
+        _check(fetched_after["verification"]["original_ai_prediction"]["potholes"] == 3,
+               "Original AI prediction safely preserved during correction")
+
+        # 4. List inspections
+        all_recs = istore.list_inspections(verification_status="VERIFIED", store_path=test_store_path)
+        _check(len(all_recs) == 1, "Filter by status returned 1 verified record")
+
+        # 5. Delete inspection
+        deleted = istore.delete_inspection(rec_id, store_path=test_store_path)
+        _check(deleted, "Delete inspection returned True")
+        _check(istore.count_inspections(store_path=test_store_path) == 0, "Store count is 0 after deletion")
+
+    finally:
+        if test_store_path.exists():
+            test_store_path.unlink()
+
+
+# =========================================================
 # MAIN RUNNER
 # =========================================================
 def run_all_tests():
-    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 13 TESTS")
+    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 16 TESTS")
 
     test_cases = [
-        (1,  "Model Loading & Hardware Status",      test_1_models),
-        (2,  "Video Metadata & Format Validation",   test_2_video_metadata),
-        (3,  "YOLO Inference on Video Frames",       test_3_yolo_inference),
-        (4,  "Video Processing & Output Encoding",   test_4_video_processing),
-        (5,  "Download File Bytes Integrity",         test_5_download_bytes),
-        (6,  "Existing Image Detection Pipeline",    test_6_image_detection),
-        (7,  "Gemini Independence (Offline)",         test_7_gemini_independence),
-        (8,  "Unique Hazard Tracking (IoU Tracker)", test_8_tracking),
-        (9,  "Duplicate Report Detection",            test_9_duplicates),
-        (10, "Risk Scoring (Heuristic Formula)",     test_10_risk_scoring),
-        (11, "Manual Verification Workflow",          test_11_verification),
-        (12, "Progress Comparison & Trend Detection",test_12_progress),
-        (13, "CSV Export (stdlib, no pandas)",        test_13_csv_export),
+        (1,  "Model Loading & Hardware Status",                  test_1_models),
+        (2,  "Video Metadata & Format Validation",               test_2_video_metadata),
+        (3,  "YOLO Inference on Video Frames",                   test_3_yolo_inference),
+        (4,  "Video Processing & Output Encoding",               test_4_video_processing),
+        (5,  "Download File Bytes Integrity",                     test_5_download_bytes),
+        (6,  "Existing Image Detection Pipeline",                test_6_image_detection),
+        (7,  "Gemini Independence (Offline)",                     test_7_gemini_independence),
+        (8,  "Unique Hazard Tracking (IoU Tracker)",             test_8_tracking),
+        (9,  "Duplicate Report Detection",                        test_9_duplicates),
+        (10, "Risk Scoring (Heuristic Formula)",                 test_10_risk_scoring),
+        (11, "Manual Verification Workflow",                      test_11_verification),
+        (12, "Progress Comparison & Trend Detection",            test_12_progress),
+        (13, "CSV Export (stdlib, no pandas)",                    test_13_csv_export),
+        (14, "Damage Severity Classification (Visual 2D Proxy)", test_14_severity_classification),
+        (15, "GPS, EXIF & Video Location Metadata Engine",        test_15_location_metadata),
+        (16, "Local JSON Inspection Store (No Database)",         test_16_inspection_store),
     ]
 
     for num, name, fn in test_cases:
@@ -536,7 +684,7 @@ def run_all_tests():
         print(f"  Failed: {failed}")
         sys.exit(1)
     else:
-        print("\n  🎉 ALL TESTS PASSED!")
+        print("\n  🎉 ALL 16 TESTS PASSED!")
         sys.exit(0)
 
 

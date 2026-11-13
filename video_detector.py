@@ -35,6 +35,12 @@ try:
 except ImportError:
     HAS_RISK_SCORER = False
 
+try:
+    import severity_classifier as sc
+    HAS_SEVERITY = True
+except ImportError:
+    HAS_SEVERITY = False
+
 # Supported video extensions
 SUPPORTED_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
@@ -539,6 +545,20 @@ def process_video(
                 if HAS_RISK_SCORER:
                     for d in frame_dets:
                         enrich_detection_with_risk(d)
+                # Enrich with visual severity classification
+                if HAS_SEVERITY:
+                    for d in frame_dets:
+                        sev = sc.classify_defect_severity(
+                            class_name=d["class_name"],
+                            box=d["box"],
+                            frame_width=width,
+                            frame_height=height,
+                            confidence=d.get("confidence")
+                        )
+                        d["severity_category"] = sev["severity_category"]
+                        d["severity_score"] = sev["severity_score"]
+                        d["severity_explanation"] = sev["explanation"]
+                        d["relative_area_pct"] = sev["relative_area_pct"]
                 last_known_detections = frame_dets
                 all_detections.extend(frame_dets)
             else:
@@ -627,17 +647,29 @@ def generate_detection_summary(
     if HAS_RISK_SCORER:
         risk_summary = compute_video_risk_summary(detections)
         risk_distribution = risk_summary["distribution"]
+
+    # Severity breakdown & overall rating
+    severity_breakdown: Dict[str, int] = {"MINOR": 0, "MODERATE": 0, "SEVERE": 0, "CRITICAL": 0}
+    overall_severity = "MINOR"
+    avg_severity_score = 0.0
+    if HAS_SEVERITY:
+        sev_summary = sc.compute_severity_summary(detections)
+        severity_breakdown = sev_summary["breakdown"]
+        overall_severity = sev_summary["overall_severity"]
+        avg_severity_score = sev_summary["average_severity_score"]
     
     # Format tabular rows for UI display
     table_rows = []
     for d in detections:
         box_str = f"[{d['box'][0]}, {d['box'][1]}, {d['box'][2]}, {d['box'][3]}]"
+        sev_cat = d.get("severity_category", "—")
         row = {
             "Frame": d["frame_idx"],
             "Timestamp": d["timestamp_str"],
             "Track ID": d.get("track_id", "—"),
             "Defect": d["class_name"],
             "Confidence": f"{d['confidence']:.1%}",
+            "Severity": sev_cat,
             "Risk": f"{d.get('risk_emoji', '')} {d.get('risk_category', '—')}",
             "Bounding Box": box_str,
             "Area (px)": d["area_pixels"],
@@ -661,5 +693,8 @@ def generate_detection_summary(
         "processing_time_sec": round(total_time_sec, 2),
         "processing_fps": round(processing_fps, 2),
         "risk_distribution": risk_distribution,
+        "severity_breakdown": severity_breakdown,
+        "overall_severity": overall_severity,
+        "average_severity_score": avg_severity_score,
         "table_rows": table_rows
     }

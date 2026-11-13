@@ -14,7 +14,6 @@ import streamlit as st
 from PIL import Image, ExifTags
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
-from geopy.geocoders import Nominatim
 
 # Optional Gemini integration (graceful fallback if gRPC/cygrpc is blocked by AppControl)
 try:
@@ -28,6 +27,9 @@ import video_detector as vd
 import duplicate_detector as dd
 import progress_monitor as pm
 import risk_scorer as rs
+import severity_classifier as sc
+import location_metadata as lm
+import inspection_store as istore
 
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
@@ -81,8 +83,10 @@ st.markdown("""
     .badge-info { background-color: #17a2b8; color: #fff; }
     .badge-success { background-color: #28a745; color: #fff; }
     .badge-warn { background-color: #ffc107; color: #000; }
+    .badge-orange { background-color: #fd7e14; color: #fff; }
     .badge-danger { background-color: #dc3545; color: #fff; }
     .badge-pending { background-color: #6c757d; color: #fff; }
+    .badge-loc { background-color: #20c997; color: #000; }
 
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 12px; }
@@ -156,54 +160,17 @@ def load_models():
 models = load_models()
 device_info = vd.get_device_info()
 
-# Session state initialisation
-_defaults = {
-    "dispatch_history": [],
-    "current_report": None,
-    "video_report": None,
-}
-for k, v in _defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# Initialize session state from persistent JSON store
+if "dispatch_history" not in st.session_state:
+    st.session_state.dispatch_history = istore.load_all_inspections()
+if "current_report" not in st.session_state:
+    st.session_state.current_report = None
+if "video_report" not in st.session_state:
+    st.session_state.video_report = None
 
 # ==========================================
 # 3. HELPER FUNCTIONS
 # ==========================================
-def get_location_from_exif(img):
-    """Extract GPS from EXIF, reverse geocode it. Fallback to default if missing."""
-    try:
-        exif = img._getexif()
-        if not exif:
-            return "Rani Chennamma Nagar, Belagavi"
-        exif_data = {ExifTags.TAGS[k]: v for k, v in exif.items() if k in ExifTags.TAGS}
-        gps_info = exif_data.get("GPSInfo")
-        if not gps_info:
-            return "Rani Chennamma Nagar, Belagavi"
-
-        def to_decimal(values):
-            d, m, s = values
-            return float(d) + float(m) / 60 + float(s) / 3600
-
-        gps_data = {ExifTags.GPSTAGS[k]: v for k, v in gps_info.items() if k in ExifTags.GPSTAGS}
-        lat = to_decimal(gps_data["GPSLatitude"])
-        lon = to_decimal(gps_data["GPSLongitude"])
-        if gps_data.get("GPSLatitudeRef") == "S":
-            lat = -lat
-        if gps_data.get("GPSLongitudeRef") == "W":
-            lon = -lon
-
-        geolocator = Nominatim(user_agent="road_hazard_app")
-        location = geolocator.reverse(f"{lat}, {lon}", timeout=5)
-        if location:
-            address = location.raw.get('address', {})
-            city = address.get('city', address.get('town', address.get('village', '')))
-            suburb = address.get('suburb', address.get('neighbourhood', ''))
-            return f"{suburb}, {city}".strip(", ")
-    except Exception:
-        pass
-    return "Rani Chennamma Nagar, Belagavi"
-
-
 def validate_with_gemini(api_key, image):
     """Sends image to Gemini to count potholes (optional verification)."""
     if not HAS_GEMINI or genai is None:
@@ -289,52 +256,83 @@ def _verification_badge(status):
         "VERIFIED":   '<span class="badge badge-success">✅ VERIFIED</span>',
         "REJECTED":   '<span class="badge badge-danger">❌ REJECTED</span>',
     }
-    return badges.get(status, f'<span class="badge badge-info">{html.escape(status)}</span>')
+    return badges.get(status, f'<span class="badge badge-info">{html.escape(str(status))}</span>')
+
+
+def _severity_badge(sev):
+    """Returns HTML badge for a severity category."""
+    badges = {
+        "MINOR":    '<span class="badge badge-success">🟢 MINOR</span>',
+        "MODERATE": '<span class="badge badge-warn">🟡 MODERATE</span>',
+        "SEVERE":   '<span class="badge badge-orange">🟠 SEVERE</span>',
+        "CRITICAL": '<span class="badge badge-danger">🔴 CRITICAL</span>',
+    }
+    return badges.get(sev, f'<span class="badge badge-info">{html.escape(str(sev))}</span>')
 
 
 def _make_csv_bytes(dispatch_history):
     """Generates CSV bytes from dispatch history using stdlib csv (no pandas)."""
     fieldnames = [
-        "Report #", "Type", "Date", "Location",
-        "Potholes", "Cracks", "Longitudinal", "Transverse", "Alligator",
-        "Avg Confidence", "Verification Status", "Risk", "Duplicate Status"
+        "Inspection ID", "Type", "Date", "Location", "Latitude", "Longitude",
+        "Location Source", "Potholes", "Cracks", "Longitudinal", "Transverse", "Alligator",
+        "Overall Severity", "Avg Severity Score", "Risk", "Avg Confidence",
+        "Verification Status", "Corrected Severity", "Corrected Class"
     ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
-    for i, rep in enumerate(dispatch_history, 1):
+    for rep in dispatch_history:
+        loc_dict = rep.get("location_metadata", {})
+        summ = rep.get("summary", {})
+        verif = rep.get("verification", {})
         writer.writerow({
-            "Report #": i,
-            "Type": rep.get("type", ""),
+            "Inspection ID": rep.get("inspection_id", ""),
+            "Type": rep.get("media_type") or rep.get("type", ""),
             "Date": rep.get("date", ""),
-            "Location": rep.get("location", ""),
-            "Potholes": rep.get("final_potholes", 0),
-            "Cracks": rep.get("final_cracks", 0),
-            "Longitudinal": rep.get("longitudinal_cracks", 0),
-            "Transverse": rep.get("transverse_cracks", 0),
-            "Alligator": rep.get("alligator_cracks", 0),
+            "Location": rep.get("location") or loc_dict.get("address", "Location unavailable"),
+            "Latitude": rep.get("latitude") if rep.get("latitude") is not None else loc_dict.get("latitude", ""),
+            "Longitude": rep.get("longitude") if rep.get("longitude") is not None else loc_dict.get("longitude", ""),
+            "Location Source": rep.get("location_source") or loc_dict.get("location_source", ""),
+            "Potholes": rep.get("final_potholes", summ.get("pothole_count", 0)),
+            "Cracks": rep.get("final_cracks", summ.get("crack_count", 0)),
+            "Longitudinal": rep.get("longitudinal_cracks", summ.get("longitudinal_cracks", 0)),
+            "Transverse": rep.get("transverse_cracks", summ.get("transverse_cracks", 0)),
+            "Alligator": rep.get("alligator_cracks", summ.get("alligator_cracks", 0)),
+            "Overall Severity": rep.get("overall_severity") or summ.get("overall_severity", "MINOR"),
+            "Avg Severity Score": rep.get("average_severity_score") or summ.get("average_severity_score", ""),
+            "Risk": rep.get("risk_category") or summ.get("risk_category", ""),
             "Avg Confidence": rep.get("avg_conf", ""),
-            "Verification Status": rep.get("verification_status", "AI_PENDING"),
-            "Risk": rep.get("risk_category", ""),
-            "Duplicate Status": rep.get("duplicate_status", ""),
+            "Verification Status": verif.get("status") or rep.get("verification_status", "AI_PENDING"),
+            "Corrected Severity": verif.get("corrected_severity") or rep.get("corrected_severity", ""),
+            "Corrected Class": verif.get("corrected_class") or rep.get("corrected_class", ""),
         })
     return buf.getvalue().encode("utf-8")
 
 
 def _init_report_defaults(rep):
-    """Ensures all required verification/tracking fields exist on a report dict."""
+    """Ensures all required verification/tracking/severity fields exist on a report dict."""
+    if "inspection_id" not in rep or not rep["inspection_id"]:
+        rep["inspection_id"] = istore.generate_inspection_id()
+
     rep.setdefault("verification_status", "AI_PENDING")
     rep.setdefault("verified_by", None)
     rep.setdefault("verified_at", None)
     rep.setdefault("corrected_class", None)
     rep.setdefault("corrected_severity", None)
     rep.setdefault("rejection_reason", None)
+    rep.setdefault("overall_severity", "MINOR")
+    rep.setdefault("average_severity_score", 20.0)
+    rep.setdefault("severity_breakdown", {"MINOR": 0, "MODERATE": 0, "SEVERE": 0, "CRITICAL": 0})
     rep.setdefault("original_ai_prediction", {
         "potholes": rep.get("final_potholes", 0),
         "cracks": rep.get("final_cracks", 0),
+        "overall_severity": rep.get("overall_severity", "MINOR")
     })
     rep.setdefault("duplicate_status", None)
-    rep.setdefault("risk_category", "")
+    rep.setdefault("risk_category", "Low")
+    rep.setdefault("location_source", "UNAVAILABLE")
+    rep.setdefault("latitude", None)
+    rep.setdefault("longitude", None)
     return rep
 
 
@@ -363,6 +361,10 @@ with st.sidebar:
         st.success(f"⚡ GPU: {device_info['device_name']}")
     else:
         st.info(f"💻 CPU: {device_info['device_name']}")
+
+    st.divider()
+    record_count = istore.count_inspections()
+    st.caption(f"📁 Local Store: `data/inspections.json` ({record_count} records)")
     st.caption("RoadSentinel v2.0 AI Engine")
 
 
@@ -391,8 +393,8 @@ if page == "📸 Detection Studio":
             <p style="font-size: 13px; color: #ccc; margin: 0;">
                 Upload a dashcam or road survey video. The AI engine processes frames sequentially,
                 detects potholes and crack variants via YOLOv8, tracks unique hazards with IoU-based
-                centroid tracking, scores risk heuristically, annotates bounding boxes, and generates
-                an annotated clip.
+                centroid tracking, assesses damage severity, scores risk heuristically, annotates bounding boxes,
+                and generates an annotated clip.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -405,9 +407,14 @@ if page == "📸 Detection Studio":
                 type=["mp4", "avi", "mov", "mkv"],
                 help="Supported formats: .mp4, .avi, .mov, .mkv. Max file size: 500 MB."
             )
+            gpx_file = st.file_uploader(
+                "Optional: Attach GPX GPS Track (.gpx)",
+                type=["gpx"],
+                help="Synchronize video frames with recorded GPS trackpoints from survey device."
+            )
 
         with vid_col_controls:
-            st.markdown('<div class="side-card"><div class="card-title">INFERENCE CONTROLS</div>', unsafe_allow_html=True)
+            st.markdown('<div class="side-card"><div class="card-title">INFERENCE & GPS CONTROLS</div>', unsafe_allow_html=True)
             v_conf = st.slider("Detection Confidence", 0.05, 0.90, float(conf), 0.05, key="video_conf_slider")
             frame_skip_option = st.selectbox(
                 "Frame Sampling (Skip)",
@@ -415,7 +422,20 @@ if page == "📸 Detection Studio":
                 format_func=lambda x: f"{x} - {'Process Every Frame (Highest Accuracy)' if x == 1 else f'Process Every {x} Frames (Faster Scan)'}",
                 key="video_frame_skip"
             )
+            gpx_offset = st.number_input(
+                "GPX Sync Offset (seconds)",
+                value=0.0, step=0.5,
+                help="Offset between video start and GPX track start in seconds."
+            )
             st.markdown('</div>', unsafe_allow_html=True)
+
+        # Manual location coordinates override for video
+        with st.expander("📍 Manual Location Coordinates (Optional override if GPS absent)"):
+            m_lat_col, m_lon_col = st.columns(2)
+            with m_lat_col:
+                v_manual_lat = st.text_input("Manual Latitude", placeholder="e.g. 15.8497", key="v_man_lat")
+            with m_lon_col:
+                v_manual_lon = st.text_input("Manual Longitude", placeholder="e.g. 74.4977", key="v_man_lon")
 
         if video_file is not None:
             temp_dir = tempfile.gettempdir()
@@ -431,6 +451,16 @@ if page == "📸 Detection Studio":
                 st.error(f"❌ Video Validation Failed: {val_msg}")
             else:
                 meta = vd.get_video_metadata(temp_video_path)
+
+                # Parse GPX if uploaded
+                gpx_trackpoints = []
+                if gpx_file is not None:
+                    gpx_bytes = gpx_file.getvalue()
+                    gpx_trackpoints = lm.parse_gpx_file(gpx_bytes)
+                    if gpx_trackpoints:
+                        st.success(f"📍 GPX sidecar parsed: {len(gpx_trackpoints)} trackpoints recorded.")
+                    else:
+                        st.warning("⚠️ GPX file parsed but contains 0 valid trackpoints.")
 
                 st.markdown("#### 📋 Video Properties")
                 m1, m2, m3, m4, m5, m6 = st.columns(6)
@@ -507,12 +537,39 @@ if page == "📸 Detection Studio":
                                 progress_callback=update_progress
                             )
 
+                            # Resolve location from GPX or manual input
+                            v_lat, v_lon = None, None
+                            v_address = "Location unavailable"
+                            v_loc_source = "UNAVAILABLE"
+
+                            if gpx_trackpoints:
+                                sync_pt = lm.match_video_timestamp_to_gpx(0.0, gpx_trackpoints, gpx_offset)
+                                if sync_pt.get("latitude") is not None:
+                                    v_lat = sync_pt["latitude"]
+                                    v_lon = sync_pt["longitude"]
+                                    v_loc_source = "GPX"
+                                    v_address = f"GPS (GPX): {v_lat:.6f}, {v_lon:.6f}"
+                            elif v_manual_lat and v_manual_lon:
+                                try:
+                                    v_lat = float(v_manual_lat.strip())
+                                    v_lon = float(v_manual_lon.strip())
+                                    v_loc_source = "MANUAL"
+                                    v_address = f"GPS (Manual): {v_lat:.6f}, {v_lon:.6f}"
+                                except Exception:
+                                    pass
+
                             st.session_state.video_report = {
                                 "meta": meta,
                                 "annotated_path": annotated_video_path,
                                 "summary": summary,
                                 "conf_used": v_conf,
-                                "date": datetime.now().strftime("%d %b %Y, %H:%M")
+                                "date": datetime.now().strftime("%d %b %Y, %H:%M"),
+                                "location_metadata": {
+                                    "latitude": v_lat,
+                                    "longitude": v_lon,
+                                    "address": v_address,
+                                    "location_source": v_loc_source
+                                }
                             }
                             st.success("✅ Video processing and annotation completed successfully!")
                         except Exception as ex:
@@ -574,10 +631,13 @@ if page == "📸 Detection Studio":
                         else:
                             st.write("**Unique Tracked Hazards:** N/A")
 
-                        st.write(f"**Processed Frames:** {sum_v['processed_frames']}")
-                        st.write(f"**Average Confidence:** {sum_v['average_confidence_pct']}")
-                        st.write(f"**Peak Confidence:** {sum_v['max_confidence_pct']}")
-                        st.write(f"**Inference Speed:** {sum_v['processing_fps']} FPS ({sum_v['processing_time_sec']}s)")
+                        # Severity breakdown
+                        sev_bk = sum_v.get("severity_breakdown", {})
+                        overall_sev = sum_v.get("overall_severity", "MINOR")
+                        st.markdown("---")
+                        st.markdown(f"**Overall Severity:** {_severity_badge(overall_sev)}", unsafe_allow_html=True)
+                        st.write(f"Critical: {sev_bk.get('CRITICAL', 0)} | Severe: {sev_bk.get('SEVERE', 0)} | Moderate: {sev_bk.get('MODERATE', 0)} | Minor: {sev_bk.get('MINOR', 0)}")
+                        st.caption("⚠️ Visual 2D estimate only. Does not measure physical depth or volume.")
 
                         # Risk distribution
                         risk_dist = sum_v.get("risk_distribution", {})
@@ -593,10 +653,28 @@ if page == "📸 Detection Studio":
 
                     # Dispatch button (outside both columns)
                     if st.button("📋 Push Video Summary to Dispatch Center", use_container_width=True):
+                        v_loc = rep_v.get("location_metadata", {})
+                        risk_dist = sum_v.get("risk_distribution", {})
+                        if risk_dist.get("Critical", 0) > 0:
+                            v_risk = "Critical"
+                        elif risk_dist.get("High", 0) > 0:
+                            v_risk = "High"
+                        elif risk_dist.get("Medium", 0) > 0:
+                            v_risk = "Medium"
+                        else:
+                            v_risk = "Low"
+
+                        new_id = istore.generate_inspection_id()
                         dispatch_entry = _init_report_defaults({
+                            "inspection_id": new_id,
                             "type": "Video Inspection",
+                            "media_type": "video",
                             "filename": rep_v["meta"]["filename"],
-                            "location": "Road Corridor Video Survey",
+                            "location": v_loc.get("address", "Location unavailable"),
+                            "latitude": v_loc.get("latitude"),
+                            "longitude": v_loc.get("longitude"),
+                            "location_source": v_loc.get("location_source", "UNAVAILABLE"),
+                            "location_metadata": v_loc,
                             "date": rep_v["date"],
                             "final_potholes": sum_v["pothole_detections"],
                             "final_cracks": (
@@ -610,24 +688,31 @@ if page == "📸 Detection Studio":
                             "avg_conf": sum_v["average_confidence_pct"],
                             "conflict": False,
                             "unique_hazard_count": sum_v.get("unique_hazard_count"),
+                            "overall_severity": sum_v.get("overall_severity", "MINOR"),
+                            "severity_breakdown": sum_v.get("severity_breakdown", {}),
+                            "average_severity_score": sum_v.get("average_severity_score", 0.0),
+                            "risk_category": v_risk,
+                            "summary": {
+                                "pothole_count": sum_v["pothole_detections"],
+                                "crack_count": (
+                                    sum_v["longitudinal_crack_detections"]
+                                    + sum_v["transverse_crack_detections"]
+                                    + sum_v["alligator_crack_detections"]
+                                ),
+                                "overall_severity": sum_v.get("overall_severity", "MINOR"),
+                                "average_severity_score": sum_v.get("average_severity_score", 0.0),
+                                "risk_category": v_risk
+                            }
                         })
-                        # Risk from distribution
-                        risk_dist = sum_v.get("risk_distribution", {})
-                        if risk_dist.get("Critical", 0) > 0:
-                            dispatch_entry["risk_category"] = "Critical"
-                        elif risk_dist.get("High", 0) > 0:
-                            dispatch_entry["risk_category"] = "High"
-                        elif risk_dist.get("Medium", 0) > 0:
-                            dispatch_entry["risk_category"] = "Medium"
-                        else:
-                            dispatch_entry["risk_category"] = "Low"
 
-                        st.session_state.dispatch_history.append(dispatch_entry)
-                        st.success("Video inspection record logged to Dispatch Center!")
+                        # Persist to local JSON store
+                        istore.save_inspection(dispatch_entry)
+                        st.session_state.dispatch_history.insert(0, dispatch_entry)
+                        st.success(f"Video inspection record #{new_id} saved to Dispatch Center & JSON Store!")
 
                     # Frame-level Detection Table
                     st.markdown("#### 📊 Frame-Wise Detection Log")
-                    st.caption("ℹ️ Detections are frame-level observations. Track ID shows heuristic hazard continuity (not physically validated).")
+                    st.caption("ℹ️ Detections are frame-level observations. Track ID shows hazard continuity. Severity is visual 2D proxy.")
                     if sum_v["table_rows"]:
                         table_html = render_html_table(sum_v["table_rows"], max_height=300)
                         st.markdown(table_html, unsafe_allow_html=True)
@@ -638,16 +723,45 @@ if page == "📸 Detection Studio":
             st.info("👋 Upload a video file (.mp4, .avi, .mov, .mkv) above to begin automated road damage detection.")
 
     # ------------------------------------------------------------------
-    # TAB 2: PHOTO STUDIO (EXISTING WORKFLOW PRESERVED)
+    # TAB 2: PHOTO STUDIO
     # ------------------------------------------------------------------
     with tab_photo:
         col_img, col_stats = st.columns([2.5, 1])
 
         with col_img:
             up = st.file_uploader("Upload Road Photo", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+
+            # Manual location override for photo if EXIF is absent
+            with st.expander("📍 Manual GPS Coordinates (Optional override if image lacks EXIF)"):
+                p_lat_c, p_lon_c = st.columns(2)
+                with p_lat_c:
+                    p_manual_lat = st.text_input("Latitude", placeholder="e.g. 15.8497", key="p_man_lat")
+                with p_lon_c:
+                    p_manual_lon = st.text_input("Longitude", placeholder="e.g. 74.4977", key="p_man_lon")
+
             if up:
                 image = Image.open(up).convert("RGB")
-                location_name = get_location_from_exif(image)
+                img_w, img_h = image.size
+
+                # Extract authentic GPS metadata without hardcoded fallbacks
+                exif_meta = lm.extract_image_location_metadata(image)
+                if p_manual_lat and p_manual_lon:
+                    try:
+                        exif_meta["latitude"] = float(p_manual_lat.strip())
+                        exif_meta["longitude"] = float(p_manual_lon.strip())
+                        exif_meta["location_source"] = "MANUAL"
+                        exif_meta["address"] = f"GPS (Manual): {exif_meta['latitude']:.6f}, {exif_meta['longitude']:.6f}"
+                        exif_meta["has_gps"] = True
+                    except Exception:
+                        pass
+
+                location_display = exif_meta["address"]
+
+                # Display Location Metadata Pill
+                if exif_meta["has_gps"]:
+                    st.success(f"📍 Location: **{location_display}** (Source: {exif_meta['location_source']})")
+                else:
+                    st.warning("📍 **Location unavailable** (No EXIF GPS metadata found in uploaded image)")
 
                 # 1. Run YOLO Cascade
                 with st.spinner("Running YOLO Cascade..."):
@@ -657,6 +771,32 @@ if page == "📸 Detection Studio":
                     yolo_transverse = counts.get("transverse", 0)
                     yolo_alligator = counts.get("alligator", 0)
                     yolo_cracks = yolo_longitudinal + yolo_transverse + yolo_alligator
+
+                    # Compute per-defect severity and summary
+                    defect_classifications = []
+                    if result and result.boxes is not None and len(result.boxes) > 0:
+                        boxes_xyxy = result.boxes.xyxy.cpu().numpy()
+                        confs = result.boxes.conf.cpu().numpy()
+                        clss = result.boxes.cls.cpu().numpy().astype(int)
+                        for b, cf, cid in zip(boxes_xyxy, confs, clss):
+                            cname = vd.normalize_class_name(result.names.get(cid, str(cid)))
+                            sev = sc.classify_defect_severity(
+                                class_name=cname,
+                                box=[int(v) for v in b],
+                                frame_width=img_w,
+                                frame_height=img_h,
+                                confidence=float(cf)
+                            )
+                            defect_classifications.append(sev)
+
+                        sev_summary = sc.compute_severity_summary(defect_classifications)
+                        overall_sev = sev_summary["overall_severity"]
+                        avg_sev_score = sev_summary["average_severity_score"]
+                        sev_breakdown = sev_summary["breakdown"]
+                    else:
+                        overall_sev = "MINOR"
+                        avg_sev_score = 0.0
+                        sev_breakdown = {"MINOR": 0, "MODERATE": 0, "SEVERE": 0, "CRITICAL": 0}
 
                     if result:
                         st.image(result.plot()[:, :, ::-1], use_container_width=True)
@@ -683,15 +823,24 @@ if page == "📸 Detection Studio":
                 # Risk score for image detection
                 image_risk = "Low"
                 if yolo_potholes > 0:
-                    # Rough heuristic for image — no bbox area available
                     image_risk = "High" if yolo_potholes >= 3 else "Medium" if yolo_potholes >= 1 else "Low"
+                elif yolo_cracks > 0:
+                    image_risk = "Medium" if yolo_cracks >= 3 else "Low"
 
                 # Save state for Dispatch
+                rep_id = istore.generate_inspection_id()
                 st.session_state.current_report = _init_report_defaults({
+                    "inspection_id": rep_id,
                     "type": "Photo Inspection",
+                    "media_type": "photo",
                     "image": image,
-                    "location": location_name,
-                    "date": datetime.now().strftime("%d %b %Y"),
+                    "location": location_display,
+                    "latitude": exif_meta["latitude"],
+                    "longitude": exif_meta["longitude"],
+                    "altitude_m": exif_meta.get("altitude_m"),
+                    "location_source": exif_meta["location_source"],
+                    "location_metadata": exif_meta,
+                    "date": datetime.now().strftime("%d %b %Y, %H:%M"),
                     "final_potholes": final_potholes,
                     "final_cracks": final_cracks,
                     "longitudinal_cracks": yolo_longitudinal,
@@ -702,14 +851,25 @@ if page == "📸 Detection Studio":
                     "gemini_reason": gemini_reason,
                     "conflict": conflict,
                     "model_used": model_used,
+                    "overall_severity": overall_sev,
+                    "severity_breakdown": sev_breakdown,
+                    "average_severity_score": avg_sev_score,
                     "risk_category": image_risk,
+                    "detections": defect_classifications,
+                    "summary": {
+                        "pothole_count": final_potholes,
+                        "crack_count": final_cracks,
+                        "overall_severity": overall_sev,
+                        "average_severity_score": avg_sev_score,
+                        "risk_category": image_risk
+                    }
                 })
 
         with col_stats:
             if st.session_state.current_report:
                 rep = st.session_state.current_report
 
-                st.markdown('<div class="side-card"><div class="card-title">DETECTED</div>', unsafe_allow_html=True)
+                st.markdown('<div class="side-card"><div class="card-title">DETECTED DEFECTS</div>', unsafe_allow_html=True)
                 classes = {
                     "Longitudinal Crack": {"count": rep.get('longitudinal_cracks', 0), "color": "#00BFFF"},
                     "Transverse Crack":   {"count": rep.get('transverse_cracks', 0),   "color": "#9370DB"},
@@ -725,19 +885,25 @@ if page == "📸 Detection Studio":
                     </div>
                     """, unsafe_allow_html=True)
 
+                st.markdown("---")
+                st.markdown(f"**Visual Severity:** {_severity_badge(rep.get('overall_severity', 'MINOR'))}", unsafe_allow_html=True)
+                st.caption("⚠️ 2D visual estimate only. Does not measure physical depth or volume.")
+
                 risk_cat = rep.get("risk_category", "")
                 if risk_cat:
                     st.markdown(f"**Risk Estimate:** `{risk_cat}` *(heuristic only)*")
 
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                st.markdown('<div class="side-card"><div class="card-title">REPORT IT</div>', unsafe_allow_html=True)
-                report_text = f"{rep['final_cracks']} cracks and {rep['final_potholes']} potholes spotted at {rep['location']} ({rep['date']})."
+                st.markdown('<div class="side-card"><div class="card-title">REPORT SUMMARY</div>', unsafe_allow_html=True)
+                report_text = f"ID: {rep.get('inspection_id')}\n{rep['final_cracks']} cracks, {rep['final_potholes']} potholes.\nLocation: {rep['location']}\nDate: {rep['date']}"
                 st.code(report_text, language="text")
 
-                if st.button("➡️ Send to Dispatch Center", type="primary", use_container_width=True):
-                    st.session_state.dispatch_history.append(rep)
-                    st.success("Report moved to Dispatch Center!")
+                if st.button("➡️ Save & Send to Dispatch Center", type="primary", use_container_width=True):
+                    # Persist to local JSON store
+                    istore.save_inspection(rep)
+                    st.session_state.dispatch_history.insert(0, rep)
+                    st.success(f"Report #{rep.get('inspection_id')} saved to Dispatch Center & JSON Store!")
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 if rep['conflict']:
@@ -753,7 +919,7 @@ elif page == "📋 Dispatch Center":
     <div class="top-header">
         <div>
             <div class="title-text">⬥ DISPATCH CENTER</div>
-            <div class="subtitle-text">AUTHORITY ACTION, VERIFICATION & PROGRESS MONITORING</div>
+            <div class="subtitle-text">AUTHORITY ACTION, SEVERITY VERIFICATION & PROGRESS MONITORING</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -771,28 +937,29 @@ elif page == "📋 Dispatch Center":
         if not st.session_state.dispatch_history:
             st.info("No reports pending dispatch. Go to the Detection Studio to analyze an image or video.")
         else:
-            st.markdown(f"**{len(st.session_state.dispatch_history)} report(s) in dispatch queue.**")
+            st.markdown(f"**{len(st.session_state.dispatch_history)} report(s) in local inspection registry (`data/inspections.json`).**")
 
             for idx, rep in enumerate(st.session_state.dispatch_history):
                 _init_report_defaults(rep)
-                rep_type = rep.get("type", "Photo Inspection")
+                rep_id = rep.get("inspection_id", f"RS-REP-{idx+1}")
+                rep_type = rep.get("type") or rep.get("media_type", "Photo Inspection")
                 v_status = rep.get("verification_status", "AI_PENDING")
-                badge_html = _verification_badge(v_status)
+                v_badge = _verification_badge(v_status)
+                sev_cat = rep.get("overall_severity", "MINOR")
+                s_badge = _severity_badge(sev_cat)
 
                 # Duplicate flag
                 dup_flag = ""
                 if rep.get("duplicate_status") == "flagged":
                     dup_flag = ' <span class="badge badge-warn">⚠️ POSSIBLE DUPLICATE</span>'
 
-                label = (
-                    f"Report #{idx+1} [{rep_type}] — {rep['location']} "
-                    f"| {rep['final_potholes']} Potholes, {rep['final_cracks']} Cracks"
-                )
+                loc_str = rep.get("location") or "Location unavailable"
+                label = f"[{rep_id}] {rep_type} — {loc_str} | {rep.get('final_potholes', 0)} Potholes, {rep.get('final_cracks', 0)} Cracks"
+
                 with st.expander(label):
-                    # Row 1: basic info + image
                     c1, c2 = st.columns([1, 2])
                     with c1:
-                        if "image" in rep:
+                        if "image" in rep and rep["image"] is not None:
                             st.image(rep["image"], use_container_width=True)
                         else:
                             st.markdown(f"📹 **Survey Video:** `{rep.get('filename', 'video')}`")
@@ -804,81 +971,114 @@ elif page == "📋 Dispatch Center":
                                 st.caption("*(heuristic — not physically validated)*")
 
                     with c2:
-                        st.write(f"**Date:** {rep['date']}")
-                        st.write(f"**Location:** {rep['location']}")
-                        st.write(f"**Total Potholes:** {rep['final_potholes']}")
-                        st.write(f"**Total Cracks:** {rep['final_cracks']}")
-                        st.markdown(f"**Status:** {badge_html}{dup_flag}", unsafe_allow_html=True)
+                        st.markdown(f"**Inspection ID:** `{rep_id}`")
+                        st.write(f"**Date:** {rep.get('date', 'Unknown')}")
+
+                        # Authentic GPS coordinate representation
+                        lat = rep.get("latitude")
+                        lon = rep.get("longitude")
+                        source = rep.get("location_source", "UNAVAILABLE")
+                        if lat is not None and lon is not None:
+                            st.markdown(f"**GPS Coordinates:** `{lat:.6f}, {lon:.6f}` <span class='badge badge-loc'>{source}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"**Location:** `{loc_str}` <span class='badge badge-pending'>NO GPS</span>", unsafe_allow_html=True)
+
+                        st.write(f"**Potholes:** {rep.get('final_potholes', 0)}  |  **Cracks:** {rep.get('final_cracks', 0)}")
+                        st.markdown(f"**Verification:** {v_badge}{dup_flag}", unsafe_allow_html=True)
+                        st.markdown(f"**Visual Severity:** {s_badge}", unsafe_allow_html=True)
+                        st.caption("⚠️ Visual estimate only. Does not measure physical depth or volume.")
 
                         risk_cat = rep.get("risk_category", "")
                         if risk_cat:
                             risk_map = {"Low": "🟢", "Medium": "🟡", "High": "🟠", "Critical": "🔴"}
                             st.write(f"**Risk Estimate:** {risk_map.get(risk_cat, '')} {risk_cat} *(heuristic)*")
 
-                        # Original AI prediction (if correction was made)
+                        # Original AI prediction preservation
                         orig = rep.get("original_ai_prediction", {})
                         if rep.get("corrected_class") or rep.get("corrected_severity"):
                             st.info(
-                                f"🤖 Original AI: {orig.get('potholes', 0)} potholes, "
-                                f"{orig.get('cracks', 0)} cracks"
+                                f"🤖 **Original AI Prediction:** {orig.get('potholes', 0)} potholes, "
+                                f"{orig.get('cracks', 0)} cracks | Severity: {orig.get('overall_severity', 'MINOR')}"
                             )
                             if rep.get("corrected_class"):
-                                st.write(f"✏️ Corrected Class: `{rep['corrected_class']}`")
+                                st.write(f"✏️ **Corrected Class:** `{rep['corrected_class']}`")
                             if rep.get("corrected_severity"):
-                                st.write(f"✏️ Corrected Severity: `{rep['corrected_severity']}`")
+                                st.write(f"✏️ **Corrected Severity:** `{rep['corrected_severity']}`")
 
                         if rep.get("rejection_reason"):
                             st.error(f"Rejection reason: {rep['rejection_reason']}")
 
-                        if rep.get('conflict'):
-                            st.warning(f"Conflict resolved: Gemini ({rep.get('gemini_potholes')}) > YOLO ({rep.get('yolo_potholes')})")
-
                     # Verification actions
                     st.markdown("---")
-                    st.markdown("**🔎 Manual Verification**")
+                    st.markdown("**🔎 Inspector Verification & Correction**")
                     vcol1, vcol2, vcol3, vcol4 = st.columns(4)
 
                     with vcol1:
-                        if st.button("✅ Verify", key=f"verify_{idx}", use_container_width=True):
+                        if st.button("✅ Verify", key=f"verify_{rep_id}", use_container_width=True):
                             rep["verification_status"] = "VERIFIED"
-                            rep["verified_by"] = "Inspector"
+                            rep["verified_by"] = "Authorized Inspector"
                             rep["verified_at"] = datetime.now().strftime("%d %b %Y, %H:%M")
-                            st.success("Report verified.")
+                            istore.update_inspection(rep_id, {
+                                "verification": {
+                                    "status": "VERIFIED",
+                                    "verified_by": rep["verified_by"],
+                                    "verified_at": rep["verified_at"],
+                                    "original_ai_prediction": rep.get("original_ai_prediction")
+                                }
+                            })
+                            st.success(f"Report #{rep_id} verified.")
                             st.rerun()
 
                     with vcol2:
-                        if st.button("❌ Reject", key=f"reject_{idx}", use_container_width=True):
+                        if st.button("❌ Reject", key=f"reject_{rep_id}", use_container_width=True):
                             rep["verification_status"] = "REJECTED"
-                            rep["rejection_reason"] = "Marked as false detection by inspector."
+                            rep["rejection_reason"] = "Marked as false detection during field review."
                             rep["verified_at"] = datetime.now().strftime("%d %b %Y, %H:%M")
-                            st.error("Report rejected.")
+                            istore.update_inspection(rep_id, {
+                                "verification": {
+                                    "status": "REJECTED",
+                                    "rejection_reason": rep["rejection_reason"],
+                                    "verified_at": rep["verified_at"]
+                                }
+                            })
+                            st.error(f"Report #{rep_id} rejected.")
                             st.rerun()
 
                     with vcol3:
-                        if v_status != "REJECTED":
-                            with st.popover("✏️ Correct"):
-                                corr_class = st.selectbox(
-                                    "Correct Damage Class",
-                                    ["— No change —", "Pothole", "Longitudinal Crack", "Transverse Crack", "Alligator Crack"],
-                                    key=f"corr_class_{idx}"
-                                )
-                                corr_sev = st.selectbox(
-                                    "Correct Severity",
-                                    ["— No change —", "Minor", "Moderate", "Severe", "Critical"],
-                                    key=f"corr_sev_{idx}"
-                                )
-                                if st.button("Apply Correction", key=f"apply_corr_{idx}"):
-                                    if corr_class != "— No change —":
-                                        rep["corrected_class"] = corr_class
-                                    if corr_sev != "— No change —":
-                                        rep["corrected_severity"] = corr_sev
-                                    rep["verification_status"] = "VERIFIED"
-                                    rep["verified_at"] = datetime.now().strftime("%d %b %Y, %H:%M")
-                                    st.rerun()
+                        with st.popover("✏️ Correct"):
+                            corr_class = st.selectbox(
+                                "Correct Damage Class",
+                                ["— No change —", "Pothole", "Longitudinal Crack", "Transverse Crack", "Alligator Crack"],
+                                key=f"corr_cls_{rep_id}"
+                            )
+                            corr_sev = st.selectbox(
+                                "Correct Damage Severity",
+                                ["— No change —", "MINOR", "MODERATE", "SEVERE", "CRITICAL"],
+                                key=f"corr_sev_{rep_id}"
+                            )
+                            if st.button("Apply Correction", key=f"apply_{rep_id}"):
+                                if corr_class != "— No change —":
+                                    rep["corrected_class"] = corr_class
+                                if corr_sev != "— No change —":
+                                    rep["corrected_severity"] = corr_sev
+                                    rep["overall_severity"] = corr_sev
+                                rep["verification_status"] = "VERIFIED"
+                                rep["verified_at"] = datetime.now().strftime("%d %b %Y, %H:%M")
+                                istore.update_inspection(rep_id, {
+                                    "overall_severity": rep["overall_severity"],
+                                    "verification": {
+                                        "status": "VERIFIED",
+                                        "corrected_class": rep.get("corrected_class"),
+                                        "corrected_severity": rep.get("corrected_severity"),
+                                        "verified_at": rep["verified_at"],
+                                        "original_ai_prediction": rep.get("original_ai_prediction")
+                                    }
+                                })
+                                st.rerun()
 
                     with vcol4:
-                        if st.button("🚀 Dispatch", key=f"dispatch_{idx}", use_container_width=True):
-                            st.success(f"✅ Report #{idx+1} dispatched to Municipal Road Maintenance Authority!")
+                        if st.button("🚀 Dispatch", key=f"disp_{rep_id}", use_container_width=True):
+                            st.success(f"✅ Report #{rep_id} dispatched to Municipal Road Maintenance Authority!")
 
     # ------------------------------------------------------------------
     # SUB-TAB: Duplicate Review
@@ -894,12 +1094,11 @@ elif page == "📋 Dispatch Center":
         if len(history) < 2:
             st.info("Need at least 2 reports in Dispatch Center to run duplicate analysis.")
         else:
-            # Run duplicate check on all pairs
             flagged_pairs = []
             for i in range(len(history)):
                 matches = dd.find_duplicates(history[i], history, skip_index=i)
                 for j, sim in matches:
-                    if j > i:  # avoid showing (A,B) and (B,A)
+                    if j > i:
                         flagged_pairs.append((i, j, sim))
 
             if not flagged_pairs:
@@ -914,15 +1113,15 @@ elif page == "📋 Dispatch Center":
                     reasons = sim["reasons"]
                     breakdown = sim["breakdown"]
 
-                    with st.expander(f"⚠️ Reports #{i+1} & #{j+1} — Similarity: {score:.0%}"):
+                    with st.expander(f"⚠️ [{rep_a.get('inspection_id', i+1)}] & [{rep_b.get('inspection_id', j+1)}] — Match: {score:.0%}"):
                         col_a, col_b = st.columns(2)
                         with col_a:
-                            st.markdown(f"**Report #{i+1}**")
+                            st.markdown(f"**Report #{rep_a.get('inspection_id', i+1)}**")
                             st.write(f"Location: {rep_a.get('location', '')}")
                             st.write(f"Date: {rep_a.get('date', '')}")
                             st.write(f"Potholes: {rep_a.get('final_potholes', 0)} | Cracks: {rep_a.get('final_cracks', 0)}")
                         with col_b:
-                            st.markdown(f"**Report #{j+1}**")
+                            st.markdown(f"**Report #{rep_b.get('inspection_id', j+1)}**")
                             st.write(f"Location: {rep_b.get('location', '')}")
                             st.write(f"Date: {rep_b.get('date', '')}")
                             st.write(f"Potholes: {rep_b.get('final_potholes', 0)} | Cracks: {rep_b.get('final_cracks', 0)}")
@@ -931,24 +1130,28 @@ elif page == "📋 Dispatch Center":
                         for r in reasons:
                             st.write(f"• {r}")
                         st.write(
-                            f"Score breakdown — Location: {breakdown['location']:.0%} | "
+                            f"Breakdown — Location: {breakdown['location']:.0%} | "
                             f"Damage: {breakdown['damage']:.0%} | Date: {breakdown['date']:.0%}"
                         )
 
                         dc1, dc2, dc3 = st.columns(3)
                         with dc1:
-                            if st.button(f"🚩 Flag #{i+1} as Duplicate", key=f"flag_dup_a_{i}_{j}"):
+                            if st.button(f"🚩 Flag #{rep_a.get('inspection_id', i+1)}", key=f"fl_a_{i}_{j}"):
                                 history[i]["duplicate_status"] = "flagged"
-                                st.warning(f"Report #{i+1} flagged as possible duplicate.")
+                                istore.update_inspection(rep_a.get("inspection_id"), {"duplicate_status": "flagged"})
+                                st.warning("Flagged as possible duplicate.")
                         with dc2:
-                            if st.button(f"🚩 Flag #{j+1} as Duplicate", key=f"flag_dup_b_{i}_{j}"):
+                            if st.button(f"🚩 Flag #{rep_b.get('inspection_id', j+1)}", key=f"fl_b_{i}_{j}"):
                                 history[j]["duplicate_status"] = "flagged"
-                                st.warning(f"Report #{j+1} flagged as possible duplicate.")
+                                istore.update_inspection(rep_b.get("inspection_id"), {"duplicate_status": "flagged"})
+                                st.warning("Flagged as possible duplicate.")
                         with dc3:
-                            if st.button(f"✅ Mark Both as Unique", key=f"unique_{i}_{j}"):
+                            if st.button("✅ Mark Both Unique", key=f"unq_{i}_{j}"):
                                 history[i]["duplicate_status"] = "confirmed_unique"
                                 history[j]["duplicate_status"] = "confirmed_unique"
-                                st.success("Both reports marked as unique.")
+                                istore.update_inspection(rep_a.get("inspection_id"), {"duplicate_status": "confirmed_unique"})
+                                istore.update_inspection(rep_b.get("inspection_id"), {"duplicate_status": "confirmed_unique"})
+                                st.success("Both marked unique.")
 
     # ------------------------------------------------------------------
     # SUB-TAB: Progress Monitor
@@ -957,7 +1160,7 @@ elif page == "📋 Dispatch Center":
         st.markdown("### 📈 Road Damage Progress Monitoring")
         st.caption(
             "Groups reports by location and compares oldest vs newest inspection. "
-            "Location matching is text-based (not GPS) — treat trends with caution."
+            "Location matching is text-based — treat trends with caution."
         )
 
         history = st.session_state.dispatch_history
@@ -1005,14 +1208,14 @@ elif page == "📋 Dispatch Center":
                                 else:
                                     st.write(f"• {note}")
 
-                        # List all reports in this cluster
                         st.markdown("**All Reports in This Location Cluster:**")
                         for orig_idx, r, sim in cluster["reports"]:
+                            rid = r.get("inspection_id", orig_idx+1)
                             status = r.get("verification_status", "AI_PENDING")
                             st.write(
-                                f"• Report #{orig_idx+1}: {r.get('date', '')} | "
+                                f"• [{rid}] {r.get('date', '')} | "
                                 f"{r.get('final_potholes', 0)} potholes, {r.get('final_cracks', 0)} cracks | "
-                                f"Status: {status}"
+                                f"Severity: {r.get('overall_severity', 'MINOR')} | Status: {status}"
                             )
 
 
@@ -1024,7 +1227,7 @@ elif page == "📊 Analytics":
     <div class="top-header">
         <div>
             <div class="title-text">⬥ SYSTEM ANALYTICS</div>
-            <div class="subtitle-text">MODEL BENCHMARKS, DAMAGE DISTRIBUTION & RUNTIME METRICS</div>
+            <div class="subtitle-text">MODEL BENCHMARKS, DAMAGE SEVERITY & STORAGE METRICS</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1051,9 +1254,9 @@ elif page == "📊 Analytics":
     total_dispatches = len(history)
     total_potholes = sum(r.get("final_potholes", 0) for r in history)
     total_cracks = sum(r.get("final_cracks", 0) for r in history)
-    verified_count = sum(1 for r in history if r.get("verification_status") == "VERIFIED")
-    rejected_count = sum(1 for r in history if r.get("verification_status") == "REJECTED")
-    pending_count = sum(1 for r in history if r.get("verification_status", "AI_PENDING") == "AI_PENDING")
+    verified_count = sum(1 for r in history if r.get("verification_status") == "VERIFIED" or r.get("verification", {}).get("status") == "VERIFIED")
+    rejected_count = sum(1 for r in history if r.get("verification_status") == "REJECTED" or r.get("verification", {}).get("status") == "REJECTED")
+    pending_count = total_dispatches - (verified_count + rejected_count)
 
     tel1, tel2, tel3, tel4, tel5, tel6 = st.columns(6)
     with tel1: st.markdown(f'<div class="metric-box"><div class="metric-val">{total_dispatches}</div><div class="metric-label">TOTAL REPORTS</div></div>', unsafe_allow_html=True)
@@ -1065,9 +1268,9 @@ elif page == "📊 Analytics":
 
     if history:
         st.markdown("---")
-        st.markdown("### 📊 Damage & Risk Distribution")
+        st.markdown("### 📊 Damage, Severity & Risk Distribution")
 
-        dist_col1, dist_col2, dist_col3 = st.columns(3)
+        dist_col1, dist_col2, dist_col3, dist_col4 = st.columns(4)
 
         with dist_col1:
             st.markdown("**Damage Category Distribution**")
@@ -1083,6 +1286,19 @@ elif page == "📊 Analytics":
             st.markdown(render_html_table(dmg_rows, max_height=180), unsafe_allow_html=True)
 
         with dist_col2:
+            st.markdown("**Severity Distribution (Visual)**")
+            sev_counts = {"CRITICAL": 0, "SEVERE": 0, "MODERATE": 0, "MINOR": 0}
+            for r in history:
+                s_val = r.get("overall_severity", "MINOR")
+                if s_val in sev_counts:
+                    sev_counts[s_val] += 1
+                else:
+                    sev_counts["MINOR"] += 1
+            sev_rows = [{"Severity": k, "Reports": v} for k, v in sev_counts.items()]
+            st.markdown(render_html_table(sev_rows, max_height=180), unsafe_allow_html=True)
+            st.caption("⚠️ 2D visual estimate only.")
+
+        with dist_col3:
             st.markdown("**Risk Distribution (Heuristic)**")
             risk_counts = {"Low": 0, "Medium": 0, "High": 0, "Critical": 0}
             for r in history:
@@ -1093,9 +1309,9 @@ elif page == "📊 Analytics":
                     risk_counts["Low"] += 1
             risk_rows = [{"Risk": k, "Reports": v} for k, v in risk_counts.items()]
             st.markdown(render_html_table(risk_rows, max_height=180), unsafe_allow_html=True)
-            st.caption("⚠️ Heuristic estimate — not a validated accident probability")
+            st.caption("⚠️ Heuristic estimate only.")
 
-        with dist_col3:
+        with dist_col4:
             st.markdown("**Verification Status**")
             vs_rows = [
                 {"Status": "✅ VERIFIED",   "Count": verified_count},
@@ -1104,18 +1320,25 @@ elif page == "📊 Analytics":
             ]
             st.markdown(render_html_table(vs_rows, max_height=180), unsafe_allow_html=True)
 
+        # --- Local Storage Status ---
+        st.markdown("---")
+        st.markdown("### 🗄️ Local Inspection Storage Status")
+        st.write(f"• Persistent Store: `data/inspections.json`")
+        st.write(f"• Total Saved Records: **{istore.count_inspections()}**")
+        st.caption("Storage operates 100% locally via atomic JSON writes without external database dependencies.")
+
         # --- Downloadable CSV ---
         st.markdown("---")
-        st.markdown("### 📥 Export Report")
+        st.markdown("### 📥 Export Inspection Report")
         csv_bytes = _make_csv_bytes(history)
         st.download_button(
-            label="⬇️ Download Full Dispatch Report (CSV)",
+            label="⬇️ Download Full Inspection Report (CSV)",
             data=csv_bytes,
-            file_name=f"RoadSentinel_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"RoadSentinel_Inspections_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             use_container_width=True
         )
-        st.caption("CSV generated from dispatch history using Python stdlib — no pandas dependency.")
+        st.caption("CSV generated with Inspection ID, GPS metadata, defect breakdown, visual severity and verification state.")
 
     else:
         st.info("No dispatch records yet. Analyze images or videos in Detection Studio and push to Dispatch Center.")
