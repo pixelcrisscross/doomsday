@@ -94,38 +94,82 @@ def is_within_radius(
 
 def extract_pothole_crop(
     image: Union[np.ndarray, Image.Image],
-    box: List[int],
-    margin_ratio: float = 0.15
+    box: Union[List[Union[int, float]], Tuple[Union[int, float], ...], np.ndarray],
+    margin_ratio: float = 0.15,
+    margin_pct: Optional[float] = None,
+    **kwargs: Any
 ) -> np.ndarray:
     """
     Extracts an individual cropped region around a pothole bounding box [x1, y1, x2, y2]
     with an added padding margin (default 15%) so road rim and context are visible.
     Clamps bounds safely to image dimensions.
     Returns BGR numpy array.
+
+    Accepts margin as margin_ratio (e.g. 0.15) or margin_pct (e.g. 0.15 or 15.0).
+    Safely handles coordinate ordering (e.g. inverted x1 > x2), floats, and out-of-frame coordinates.
     """
+    # 1. Resolve margin parameter
+    margin = margin_ratio
+    if margin_pct is not None:
+        margin = margin_pct / 100.0 if margin_pct > 1.0 else margin_pct
+    elif "margin" in kwargs:
+        m_val = kwargs["margin"]
+        margin = m_val / 100.0 if m_val > 1.0 else m_val
+
+    # Ensure non-negative margin
+    margin = max(0.0, float(margin))
+
+    # 2. Convert and validate image input
     if isinstance(image, Image.Image):
-        # Convert PIL to BGR OpenCV format
         rgb = np.array(image.convert("RGB"))
         img_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    else:
+    elif isinstance(image, np.ndarray):
         img_bgr = image.copy()
+    else:
+        return np.zeros((64, 64, 3), dtype=np.uint8)
+
+    if img_bgr is None or img_bgr.size == 0 or len(img_bgr.shape) < 2:
+        return np.zeros((64, 64, 3), dtype=np.uint8)
 
     h, w = img_bgr.shape[:2]
-    x1, y1, x2, y2 = [int(v) for v in box]
+    if h < 5 or w < 5:
+        return img_bgr
 
-    bw = x2 - x1
-    bh = y2 - y1
-    pad_w = int(bw * margin_ratio)
-    pad_h = int(bh * margin_ratio)
+    # 3. Validate and sanitize bounding box
+    if box is None:
+        return img_bgr
 
-    cx1 = max(0, x1 - pad_w)
-    cy1 = max(0, y1 - pad_h)
-    cx2 = min(w, x2 + pad_w)
-    cy2 = min(h, y2 + pad_h)
+    try:
+        if isinstance(box, np.ndarray):
+            raw_box = box.flatten().tolist()
+        else:
+            raw_box = list(box)
+
+        if len(raw_box) < 4:
+            return img_bgr
+
+        raw_x1, raw_y1, raw_x2, raw_y2 = [float(v) for v in raw_box[:4]]
+    except (ValueError, TypeError):
+        return img_bgr
+
+    # 4. Handle inverted coordinates and rounding
+    x1, x2 = sorted([int(round(raw_x1)), int(round(raw_x2))])
+    y1, y2 = sorted([int(round(raw_y1)), int(round(raw_y2))])
+
+    # 5. Compute dimensions and margin padding
+    bw = max(1, x2 - x1)
+    bh = max(1, y2 - y1)
+    pad_w = int(round(bw * margin))
+    pad_h = int(round(bh * margin))
+
+    # 6. Apply padding and clamp safely to image boundaries
+    cx1 = max(0, min(w - 1, x1 - pad_w))
+    cy1 = max(0, min(h - 1, y1 - pad_h))
+    cx2 = max(cx1 + 1, min(w, x2 + pad_w))
+    cy2 = max(cy1 + 1, min(h, y2 + pad_h))
 
     crop = img_bgr[cy1:cy2, cx1:cx2]
     if crop.size == 0 or crop.shape[0] < 5 or crop.shape[1] < 5:
-        # Fallback to whole image or minimal patch if box was invalid
         return img_bgr
 
     return crop
