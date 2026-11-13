@@ -70,6 +70,32 @@ def load_all_inspections(store_path: Path = DEFAULT_STORE_FILE) -> List[Dict[str
             return []
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively converts objects to JSON-serializable primitives and excludes in-memory image buffers."""
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        if hasattr(obj, "item"):
+            return obj.item()
+        return obj
+    if isinstance(obj, dict):
+        clean_dict = {}
+        for k, v in obj.items():
+            if k in ("image", "crop_image") or "PIL." in str(type(v)):
+                continue
+            clean_dict[str(k)] = _sanitize_for_json(v)
+        return clean_dict
+    if isinstance(obj, (list, tuple, set)):
+        return [_sanitize_for_json(x) for x in obj]
+    if hasattr(obj, "item"):
+        return obj.item()
+    if hasattr(obj, "tolist"):
+        return obj.tolist()
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return str(obj)
+
+
 def _atomic_write(records: List[Dict[str, Any]], store_path: Path = DEFAULT_STORE_FILE) -> bool:
     """
     Safely writes records to a temporary file in the same directory and replaces target.
@@ -78,9 +104,10 @@ def _atomic_write(records: List[Dict[str, Any]], store_path: Path = DEFAULT_STOR
     _ensure_dir(store_path)
     parent = store_path.parent
     try:
+        clean_records = _sanitize_for_json(records)
         # Create temp file in same directory for atomic replace on POSIX & Windows
         with tempfile.NamedTemporaryFile("w", dir=parent, delete=False, encoding="utf-8") as tf:
-            json.dump(records, tf, indent=2, ensure_ascii=False)
+            json.dump(clean_records, tf, indent=2, ensure_ascii=False)
             temp_name = tf.name
 
         # Atomically replace

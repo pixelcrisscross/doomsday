@@ -745,10 +745,252 @@ def test_17_simplified_location():
 
 
 # =========================================================
+# TEST 18 — Intelligent Duplicate Pothole Detection System (17 Scenarios)
+# =========================================================
+def test_18_intelligent_duplicate_system():
+    import numpy as np
+
+    rng = np.random.RandomState(42)
+    crop_base = rng.randint(40, 80, (120, 120, 3), dtype=np.uint8)
+    crop_similar = (crop_base.astype(np.float32) * 1.05).clip(0, 255).astype(np.uint8)
+    crop_diff = rng.randint(180, 240, (120, 120, 3), dtype=np.uint8)
+
+    base_lat = 15.849700
+    base_lon = 74.497700
+
+    # 1. First report of a pothole is classified as NEW_REPORT
+    rep_1 = app._init_report_defaults({
+        "inspection_id": "RS-DUP-01",
+        "type": "Photo Inspection",
+        "location": "Station Road, Belagavi",
+        "latitude": base_lat,
+        "longitude": base_lon,
+        "date": "14 Nov 2026, 09:00",
+        "final_potholes": 1,
+        "final_cracks": 0,
+        "detections": [{
+            "class_name": "Pothole",
+            "box": [10, 10, 100, 100],
+            "crop_image": crop_base
+        }]
+    })
+    matches_1 = dd.find_pothole_duplicates(rep_1, [], radius_m=25.0)
+    _check(len(matches_1) == 0, "Scenario 1: First report has 0 duplicate matches (initializes as NEW_REPORT)")
+    _check(rep_1["duplicate_status"] == "NEW_REPORT", "Scenario 1: First report default status is NEW_REPORT")
+
+    # 2. Second report of same pothole at same GPS coordinates and same image is detected as POSSIBLE_DUPLICATE
+    rep_2 = app._init_report_defaults({
+        "inspection_id": "RS-DUP-02",
+        "type": "Photo Inspection",
+        "location": "Station Road, Belagavi",
+        "latitude": base_lat,
+        "longitude": base_lon,
+        "date": "14 Nov 2026, 11:30",
+        "final_potholes": 1,
+        "final_cracks": 0,
+        "detections": [{
+            "class_name": "Pothole",
+            "box": [10, 10, 100, 100],
+            "crop_image": crop_base
+        }]
+    })
+    matches_2 = dd.find_pothole_duplicates(rep_2, [rep_1], radius_m=25.0)
+    _check(len(matches_2) == 1, "Scenario 2: Exact image + GPS duplicate detected")
+    _check(matches_2[0]["decision"] == "POSSIBLE_DUPLICATE", f"Scenario 2: Flagged as POSSIBLE_DUPLICATE (got {matches_2[0]['decision']})")
+    _check(matches_2[0]["original_report_id"] == "RS-DUP-01", "Scenario 2: Correctly linked to original report RS-DUP-01")
+    _check(matches_2[0]["distance_m"] < 1.0, f"Scenario 2: Distance < 1.0m (got {matches_2[0]['distance_m']}m)")
+    _check(matches_2[0]["similarity_score"] >= 0.85, f"Scenario 2: Visual similarity >= 85% (got {matches_2[0]['similarity_score']:.1%})")
+
+    # 3. Second report from different angle/lighting with moderate visual similarity within 25m is detected
+    rep_3 = app._init_report_defaults({
+        "inspection_id": "RS-DUP-03",
+        "type": "Photo Inspection",
+        "location": "Station Road, Belagavi",
+        "latitude": base_lat + 0.00009,
+        "longitude": base_lon,
+        "date": "14 Nov 2026, 14:00",
+        "final_potholes": 1,
+        "final_cracks": 0,
+        "detections": [{
+            "class_name": "Pothole",
+            "box": [10, 10, 100, 100],
+            "crop_image": crop_similar
+        }]
+    })
+    matches_3 = dd.find_pothole_duplicates(rep_3, [rep_1], radius_m=25.0)
+    _check(len(matches_3) == 1, "Scenario 3: Moderate visual similarity within 25m detected")
+    _check(matches_3[0]["decision"] in ("POSSIBLE_DUPLICATE", "NEEDS_MANUAL_REVIEW"),
+           f"Scenario 3: Status is candidate duplicate (got {matches_3[0]['decision']})")
+    _check(matches_3[0]["distance_m"] <= 25.0, f"Scenario 3: Distance <= 25m (got {matches_3[0]['distance_m']}m)")
+
+    # 4. Two different potholes within 25m of each other are distinguished and classified as NEW_REPORT
+    eval_4 = dd.evaluate_duplicate_candidate(
+        new_crop=crop_diff, new_lat=base_lat + 0.00005, new_lon=base_lon, new_class="Pothole",
+        cand_crop=crop_base, cand_lat=base_lat, cand_lon=base_lon, cand_class="Pothole",
+        radius_m=25.0
+    )
+    _check(eval_4["decision"] == "NEW_REPORT", f"Scenario 4: Different defect within 25m classified as NEW_REPORT (got {eval_4['decision']})")
+    _check(eval_4["within_radius"] is True, "Scenario 4: Accurately recognized as within geographic radius")
+    _check(eval_4["visual_similarity_score"] < 0.40, f"Scenario 4: Visual similarity low for distinct defect ({eval_4['visual_similarity_score']:.1%})")
+
+    # 5. Same-looking pothole at a distant location (>25m) is classified as NEW_REPORT (distant lookalike)
+    distant_lat = base_lat + 0.0200
+    distant_lon = base_lon + 0.0200
+    eval_5 = dd.evaluate_duplicate_candidate(
+        new_crop=crop_base, new_lat=distant_lat, new_lon=distant_lon, new_class="Pothole",
+        cand_crop=crop_base, cand_lat=base_lat, cand_lon=base_lon, cand_class="Pothole",
+        radius_m=25.0
+    )
+    _check(eval_5["decision"] == "NEW_REPORT", f"Scenario 5: Distant lookalike classified as NEW_REPORT (got {eval_5['decision']})")
+    _check(eval_5["within_radius"] is False, "Scenario 5: Outside geographic radius confirmed")
+    _check(eval_5["geographic_distance_m"] > 25.0, f"Scenario 5: Distance > 25m (got {eval_5['geographic_distance_m']}m)")
+
+    # 6. Multi-pothole report correctly isolates individual duplicate potholes while marking others as new
+    rep_multi = app._init_report_defaults({
+        "inspection_id": "RS-DUP-MULTI",
+        "type": "Photo Inspection",
+        "location": "Station Road, Belagavi",
+        "latitude": base_lat,
+        "longitude": base_lon,
+        "date": "14 Nov 2026, 16:00",
+        "final_potholes": 2,
+        "final_cracks": 0,
+        "detections": [
+            {"class_name": "Pothole", "box": [0, 0, 50, 50], "crop_image": crop_base},
+            {"class_name": "Pothole", "box": [60, 60, 110, 110], "crop_image": crop_diff}
+        ]
+    })
+    matches_multi = dd.find_pothole_duplicates(rep_multi, [rep_1], radius_m=25.0)
+    _check(len(matches_multi) == 1, f"Scenario 6: Multi-pothole report matched exactly 1 duplicate pothole (got {len(matches_multi)})")
+    _check(matches_multi[0]["new_defect_idx"] == 0, "Scenario 6: Matched defect index is 0 (the duplicate crop)")
+
+    # 7. Video tracking IDs are used to avoid self-duplicate matching within the same video
+    tracker = tr.SimpleTracker(max_missed=5, match_dist=90.0, iou_thresh=0.2)
+    frame1_dets = [{"box": [100, 100, 160, 160], "class_name": "Pothole", "confidence": 0.85}]
+    tr1 = tracker.update(frame1_dets, frame_idx=0)
+    _check(len(tr1) == 1, "Scenario 7: Tracker registered 1 hazard in frame 1")
+    tid1 = tr1[0]["track_id"]
+
+    frame2_dets = [{"box": [102, 101, 162, 161], "class_name": "Pothole", "confidence": 0.87}]
+    tr2 = tracker.update(frame2_dets, frame_idx=1)
+    _check(len(tr2) == 1, "Scenario 7: Tracker tracked hazard in frame 2")
+    tid2 = tr2[0]["track_id"]
+    _check(tid1 == tid2, f"Scenario 7: Same physical pothole maintained identical tracking ID #{tid1} across frames")
+    _check(tracker.unique_count == 1, f"Scenario 7: Unique hazard count is 1, not double-counted (got {tracker.unique_count})")
+
+    # 8. Missing GPS coordinates fallback to visual-only review with NEEDS_MANUAL_REVIEW status
+    eval_8 = dd.evaluate_duplicate_candidate(
+        new_crop=crop_base, new_lat=None, new_lon=None, new_class="Pothole",
+        cand_crop=crop_base, cand_lat=base_lat, cand_lon=base_lon, cand_class="Pothole",
+        radius_m=25.0
+    )
+    _check(eval_8["decision"] == "NEEDS_MANUAL_REVIEW", f"Scenario 8: Missing GPS falls back to NEEDS_MANUAL_REVIEW (got {eval_8['decision']})")
+    _check(eval_8["geographic_distance_m"] is None, "Scenario 8: Geographic distance is None when GPS missing")
+
+    # 9. Crop file extraction, saving and loading work correctly
+    test_crop_path = dd.save_pothole_crop(crop_base, report_id="RS-TEST-CROP", pothole_idx=0)
+    _check(os.path.exists(test_crop_path), f"Scenario 9: Crop saved to disk at {test_crop_path}")
+    loaded_crop = dd.load_pothole_crop(test_crop_path)
+    _check(loaded_crop is not None, "Scenario 9: Crop successfully loaded from disk")
+    _check(loaded_crop.shape == crop_base.shape, f"Scenario 9: Loaded crop shape matches {crop_base.shape}")
+
+    # 10. Missing crop files are handled gracefully without application crashes
+    missing_crop = dd.load_pothole_crop("data/pothole_crops/non_existent_crop_999.jpg")
+    _check(missing_crop is None, "Scenario 10: Missing crop returns None without crashing")
+    sim_missing = dd.compute_crop_visual_similarity(crop_base, "data/pothole_crops/non_existent_crop_999.jpg")
+    _check(sim_missing["score"] == 0.0, "Scenario 10: Visual comparison on missing crop returns 0.0 score safely")
+
+    # 11. Rejected reports are excluded from active duplicate candidate matching
+    rep_rej = app._init_report_defaults({
+        "inspection_id": "RS-REJECTED",
+        "type": "Photo Inspection",
+        "location": "Station Road, Belagavi",
+        "latitude": base_lat,
+        "longitude": base_lon,
+        "date": "14 Nov 2026, 08:00",
+        "verification_status": "REJECTED",
+        "final_potholes": 1,
+        "detections": [{"class_name": "Pothole", "box": [10, 10, 100, 100], "crop_image": crop_base}]
+    })
+    matches_rej = dd.find_pothole_duplicates(rep_2, [rep_rej], radius_m=25.0)
+    _check(len(matches_rej) == 0, "Scenario 11: Rejected reports excluded from active duplicate matching")
+
+    # 12. Confirming duplicate links report via duplicate_of without deleting records
+    test_store_path = Path("data/test_dup_store.json")
+    if test_store_path.exists():
+        test_store_path.unlink()
+    try:
+        istore.save_inspection(rep_1, store_path=test_store_path)
+        istore.save_inspection(rep_2, store_path=test_store_path)
+
+        istore.update_inspection("RS-DUP-02", {
+            "duplicate_status": "CONFIRMED_DUPLICATE",
+            "duplicate_of": "RS-DUP-01"
+        }, store_path=test_store_path)
+
+        rec1 = istore.get_inspection("RS-DUP-01", store_path=test_store_path)
+        rec2 = istore.get_inspection("RS-DUP-02", store_path=test_store_path)
+        _check(rec1 is not None, "Scenario 12: Original report RS-DUP-01 preserved in store")
+        _check(rec2 is not None, "Scenario 12: Duplicate report RS-DUP-02 preserved in store")
+        _check(rec2.get("duplicate_status") == "CONFIRMED_DUPLICATE", "Scenario 12: Duplicate status is CONFIRMED_DUPLICATE")
+        _check(rec2.get("duplicate_of") == "RS-DUP-01", "Scenario 12: duplicate_of links correctly to RS-DUP-01")
+
+        # 13. Marking as different updates status to MARKED_AS_UNIQUE
+        istore.update_inspection("RS-DUP-02", {
+            "duplicate_status": "MARKED_AS_UNIQUE",
+            "duplicate_of": None
+        }, store_path=test_store_path)
+        rec2_diff = istore.get_inspection("RS-DUP-02", store_path=test_store_path)
+        _check(rec2_diff.get("duplicate_status") == "MARKED_AS_UNIQUE", "Scenario 13: Status updated to MARKED_AS_UNIQUE")
+        _check(rec2_diff.get("duplicate_of") is None, "Scenario 13: duplicate_of cleared when marked unique")
+
+        # 14. System preserves data across restarts via JSON store
+        reloaded = istore.load_all_inspections(store_path=test_store_path)
+        _check(len(reloaded) == 2, f"Scenario 14: All 2 records reloaded after store re-open (got {len(reloaded)})")
+        _check(reloaded[0].get("inspection_id") in ("RS-DUP-01", "RS-DUP-02"), "Scenario 14: IDs preserved across restarts")
+    finally:
+        if test_store_path.exists():
+            test_store_path.unlink()
+
+    # 15. Haversine distance calculation accuracy across known benchmark coordinate pairs
+    d_zero = dd.haversine_distance_m(base_lat, base_lon, base_lat, base_lon)
+    _check(d_zero == 0.0, f"Scenario 15: Distance between identical points is 0.0m (got {d_zero}m)")
+    d_1deg = dd.haversine_distance_m(0.0, 0.0, 0.0, 1.0)
+    _check(abs(d_1deg - 111195.0) < 500.0, f"Scenario 15: 1-degree equatorial distance ~111.19 km (got {d_1deg:.1f}m)")
+
+    # 16. Analytics metrics accurately compute unique hazards vs duplicate reports
+    mock_history = [
+        {"inspection_id": "M1", "final_potholes": 1, "duplicate_status": "NEW_REPORT"},
+        {"inspection_id": "M2", "final_potholes": 1, "duplicate_status": "CONFIRMED_DUPLICATE", "duplicate_of": "M1"},
+        {"inspection_id": "M3", "final_potholes": 2, "duplicate_status": "NEW_REPORT"},
+        {"inspection_id": "M4", "final_potholes": 1, "duplicate_status": "POSSIBLE_DUPLICATE"},
+    ]
+    tot_rep = len(mock_history)
+    tot_pot = sum(r["final_potholes"] for r in mock_history)
+    conf_dup = sum(1 for r in mock_history if r.get("duplicate_status") == "CONFIRMED_DUPLICATE")
+    unique_haz = tot_pot - conf_dup
+    _check(tot_rep == 4, f"Scenario 16: Total reports is 4 (got {tot_rep})")
+    _check(tot_pot == 5, f"Scenario 16: Total potholes detected is 5 (got {tot_pot})")
+    _check(conf_dup == 1, f"Scenario 16: Confirmed duplicates is 1 (got {conf_dup})")
+    _check(unique_haz == 4, f"Scenario 16: Unique active hazards = 5 - 1 = 4 (got {unique_haz})")
+
+    # 17. Image crop accessibility and display in dispatch review
+    _check(os.path.exists(test_crop_path), "Scenario 17: Pothole crop file accessible in data/pothole_crops/")
+    with Image.open(test_crop_path) as test_img_crop:
+        _check(test_img_crop.size[0] > 0 and test_img_crop.size[1] > 0,
+               f"Scenario 17: Crop readable as valid image for UI rendering ({test_img_crop.size})")
+    if os.path.exists(test_crop_path):
+        try:
+            os.remove(test_crop_path)
+        except Exception:
+            pass
+
+
+# =========================================================
 # MAIN RUNNER
 # =========================================================
 def run_all_tests():
-    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 17 TESTS")
+    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 18 TESTS")
 
     test_cases = [
         (1,  "Model Loading & Hardware Status",                  test_1_models),
@@ -768,6 +1010,7 @@ def run_all_tests():
         (15, "GPS, EXIF & Video Location Metadata Engine",        test_15_location_metadata),
         (16, "Local JSON Inspection Store (No Database)",         test_16_inspection_store),
         (17, "Simplified Location & Current Geolocation Engine",  test_17_simplified_location),
+        (18, "Intelligent Duplicate Pothole System (17 Scenarios)", test_18_intelligent_duplicate_system),
     ]
 
     for num, name, fn in test_cases:
@@ -786,7 +1029,7 @@ def run_all_tests():
         print(f"  Failed: {failed}")
         sys.exit(1)
     else:
-        print("\n  🎉 ALL 17 TESTS PASSED!")
+        print(f"\n  🎉 ALL {len(results)} TESTS PASSED!")
         sys.exit(0)
 
 

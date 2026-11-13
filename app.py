@@ -31,6 +31,7 @@ import severity_classifier as sc
 import location_metadata as lm
 import inspection_store as istore
 from location_picker import render_location_picker
+import pydeck as pdk
 
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
@@ -271,13 +272,30 @@ def _severity_badge(sev):
     return badges.get(sev, f'<span class="badge badge-info">{html.escape(str(sev))}</span>')
 
 
+def _duplicate_badge(dup_status, dup_of=None):
+    """Returns HTML badge for duplicate status."""
+    if dup_status in ("POSSIBLE_DUPLICATE", "flagged"):
+        return '<span class="badge badge-warn">⚠️ POSSIBLE DUPLICATE</span>'
+    elif dup_status == "CONFIRMED_DUPLICATE":
+        of_str = f" (Duplicate of #{html.escape(str(dup_of))})" if dup_of else ""
+        return f'<span class="badge badge-danger">🔴 CONFIRMED DUPLICATE{of_str}</span>'
+    elif dup_status == "NEEDS_MANUAL_REVIEW":
+        return '<span class="badge badge-orange">🔍 REVIEW REQUIRED</span>'
+    elif dup_status == "MARKED_AS_UNIQUE":
+        return '<span class="badge badge-success">🟢 VERIFIED UNIQUE</span>'
+    elif dup_status == "NEW_REPORT":
+        return '<span class="badge badge-info">🆕 NEW REPORT</span>'
+    return ""
+
+
 def _make_csv_bytes(dispatch_history):
     """Generates CSV bytes from dispatch history using stdlib csv (no pandas)."""
     fieldnames = [
         "Inspection ID", "Type", "Date", "Location", "Latitude", "Longitude",
         "Location Source", "Potholes", "Cracks", "Longitudinal", "Transverse", "Alligator",
         "Overall Severity", "Avg Severity Score", "Risk", "Avg Confidence",
-        "Verification Status", "Corrected Severity", "Corrected Class"
+        "Verification Status", "Corrected Severity", "Corrected Class",
+        "Duplicate Status", "Duplicate Of"
     ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
@@ -306,6 +324,8 @@ def _make_csv_bytes(dispatch_history):
             "Verification Status": verif.get("status") or rep.get("verification_status", "AI_PENDING"),
             "Corrected Severity": verif.get("corrected_severity") or rep.get("corrected_severity", ""),
             "Corrected Class": verif.get("corrected_class") or rep.get("corrected_class", ""),
+            "Duplicate Status": rep.get("duplicate_status", "NEW_REPORT"),
+            "Duplicate Of": rep.get("duplicate_of", "") or "",
         })
     return buf.getvalue().encode("utf-8")
 
@@ -329,7 +349,11 @@ def _init_report_defaults(rep):
         "cracks": rep.get("final_cracks", 0),
         "overall_severity": rep.get("overall_severity", "MINOR")
     })
-    rep.setdefault("duplicate_status", None)
+    if not rep.get("duplicate_status"):
+        rep["duplicate_status"] = "NEW_REPORT"
+    rep.setdefault("duplicate_of", None)
+    rep.setdefault("duplicate_candidates", [])
+    rep.setdefault("potholes", [])
     rep.setdefault("risk_category", "Low")
     rep.setdefault("location_source", "UNAVAILABLE")
     rep.setdefault("latitude", None)
@@ -344,6 +368,7 @@ with st.sidebar:
     st.markdown("### Navigation")
     page = st.radio("Go to", [
         "📸 Detection Studio",
+        "🗺️ Damage Map",
         "📋 Dispatch Center",
         "📊 Analytics"
     ])
@@ -748,20 +773,41 @@ if page == "📸 Detection Studio":
                     yolo_cracks = yolo_longitudinal + yolo_transverse + yolo_alligator
 
                     # Compute per-defect severity and summary
+                    rep_id = istore.generate_inspection_id()
                     defect_classifications = []
+                    potholes_list = []
+
                     if result and result.boxes is not None and len(result.boxes) > 0:
                         boxes_xyxy = result.boxes.xyxy.cpu().numpy()
                         confs = result.boxes.conf.cpu().numpy()
                         clss = result.boxes.cls.cpu().numpy().astype(int)
                         for b, cf, cid in zip(boxes_xyxy, confs, clss):
                             cname = vd.normalize_class_name(result.names.get(cid, str(cid)))
+                            box_coords = [int(v) for v in b]
                             sev = sc.classify_defect_severity(
                                 class_name=cname,
-                                box=[int(v) for v in b],
+                                box=box_coords,
                                 frame_width=img_w,
                                 frame_height=img_h,
                                 confidence=float(cf)
                             )
+                            if cname == "Pothole":
+                                p_idx = len(potholes_list)
+                                crop_bgr = dd.extract_pothole_crop(image, box_coords, margin_pct=0.15)
+                                crop_path = dd.save_pothole_crop(crop_bgr, report_id=rep_id, pothole_idx=p_idx)
+                                dhash_val = dd.compute_dhash(crop_bgr)
+                                sev["crop_path"] = crop_path
+                                sev["crop_image"] = crop_bgr
+                                sev["dhash"] = dhash_val
+                                potholes_list.append({
+                                    "pothole_idx": p_idx,
+                                    "box": box_coords,
+                                    "crop_path": crop_path,
+                                    "crop_image": crop_bgr,
+                                    "dhash": dhash_val,
+                                    "severity": sev.get("severity_category", "MODERATE"),
+                                    "status": "NEW_REPORT"
+                                })
                             defect_classifications.append(sev)
 
                         sev_summary = sc.compute_severity_summary(defect_classifications)
@@ -803,7 +849,6 @@ if page == "📸 Detection Studio":
                     image_risk = "Medium" if yolo_cracks >= 3 else "Low"
 
                 # Save state for Dispatch
-                rep_id = istore.generate_inspection_id()
                 st.session_state.current_report = _init_report_defaults({
                     "inspection_id": rep_id,
                     "type": "Photo Inspection",
@@ -831,6 +876,7 @@ if page == "📸 Detection Studio":
                     "average_severity_score": avg_sev_score,
                     "risk_category": image_risk,
                     "detections": defect_classifications,
+                    "potholes": potholes_list,
                     "summary": {
                         "pothole_count": final_potholes,
                         "crack_count": final_cracks,
@@ -839,6 +885,65 @@ if page == "📸 Detection Studio":
                         "risk_category": image_risk
                     }
                 })
+
+                # Duplicate evaluation against history
+                dup_matches = dd.find_pothole_duplicates(
+                    st.session_state.current_report,
+                    st.session_state.dispatch_history,
+                    radius_m=25.0
+                )
+                if dup_matches:
+                    primary = dup_matches[0]
+                    st.session_state.current_report["duplicate_status"] = primary["decision"]
+                    st.session_state.current_report["duplicate_of"] = primary["original_report_id"]
+                    st.session_state.current_report["duplicate_candidates"] = [
+                        {
+                            "original_report_id": m["original_report_id"],
+                            "distance_m": m["distance_m"],
+                            "similarity_score": m["similarity_score"],
+                            "decision": m["decision"],
+                            "reasons": m["reasons"],
+                            "original_crop_path": m.get("original_crop_path")
+                        }
+                        for m in dup_matches
+                    ]
+
+                    # Display prominent duplicate alert banner
+                    dist_txt = f"{primary['distance_m']:.1f}m" if primary.get("distance_m") is not None else "Unknown distance (GPS unavailable)"
+                    st.warning(
+                        f"⚠️ **POSSIBLE DUPLICATE DETECTED**: This pothole appears to have already been reported on "
+                        f"**{primary.get('original_date', 'earlier')}** at **{dist_txt}** away (Report `#{primary.get('original_report_id')}`)."
+                    )
+                    with st.expander("🔍 Side-by-Side Duplicate Visual Comparison", expanded=True):
+                        c_orig_ui, c_new_ui = st.columns(2)
+                        with c_orig_ui:
+                            st.markdown(f"**Original Report (#{primary.get('original_report_id')})**")
+                            orig_c = primary.get("original_crop")
+                            if orig_c is not None:
+                                st.image(orig_c[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
+                            elif primary.get("original_crop_path"):
+                                c_img = dd.load_pothole_crop(primary["original_crop_path"])
+                                if c_img is not None:
+                                    st.image(c_img[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
+                            else:
+                                st.info("Original crop preview unavailable")
+                        with c_new_ui:
+                            st.markdown("**Newly Submitted Pothole Crop**")
+                            new_c = primary.get("new_crop")
+                            if new_c is not None:
+                                st.image(new_c[:, :, ::-1], caption="New Pothole Crop", use_container_width=True)
+                            elif potholes_list and potholes_list[0].get("crop_image") is not None:
+                                st.image(potholes_list[0]["crop_image"][:, :, ::-1], caption="New Pothole Crop", use_container_width=True)
+                            else:
+                                st.image(image, caption="New Inspection Image", use_container_width=True)
+
+                        st.markdown(f"**Composite Visual Similarity:** `{primary.get('similarity_score', 0):.0%}`")
+                        for r_reason in primary.get("reasons", []):
+                            st.caption(f"• {r_reason}")
+                else:
+                    st.session_state.current_report["duplicate_status"] = "NEW_REPORT"
+                    st.session_state.current_report["duplicate_of"] = None
+                    st.session_state.current_report["duplicate_candidates"] = []
 
         with col_stats:
             if st.session_state.current_report:
@@ -887,7 +992,216 @@ if page == "📸 Detection Studio":
 
 
 # ==========================================
-# PAGE 2: DISPATCH CENTER
+# PAGE 2: DAMAGE MAP & GEOFENCE
+# ==========================================
+elif page == "🗺️ Damage Map":
+    st.markdown("""
+    <div class="top-header">
+        <div>
+            <div class="title-text">⬥ DAMAGE MAP & PROXIMITY GEOFENCE</div>
+            <div class="subtitle-text">GEOGRAPHIC RADIUS VISUALIZATION & INTELLIGENT DUPLICATE IDENTIFICATION</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    history = st.session_state.dispatch_history
+
+    st.markdown("""
+    <div class="side-card">
+        <div class="card-title">GEOGRAPHIC PROXIMITY GEOFENCE & DUPLICATE TRACKER</div>
+        <p style="font-size: 13px; color: #ccc; margin: 0;">
+            Visualizes all reported road defects with authentic GPS coordinates on an interactive map.
+            Each original pothole is surrounded by a dynamic circular geofence (default 25 meters).
+            Candidate and confirmed duplicates are differentiated with dedicated status colors.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    map_ctrl1, map_ctrl2 = st.columns([2, 1])
+    with map_ctrl1:
+        radius_slider = st.slider(
+            "Geographic Matching Radius (meters)",
+            min_value=10, max_value=100, value=25, step=5,
+            help="Radius in meters to visualize circular geofence around reported defects."
+        )
+    with map_ctrl2:
+        status_filter = st.selectbox(
+            "Filter by Duplicate Status",
+            ["All Reports", "Original Reports Only", "Suspected Duplicates", "Confirmed Duplicates"]
+        )
+
+    geo_reports = [r for r in history if r.get("latitude") is not None and r.get("longitude") is not None]
+    no_geo_reports = [r for r in history if r.get("latitude") is None or r.get("longitude") is None]
+
+    if status_filter == "Original Reports Only":
+        filtered_geo = [r for r in geo_reports if r.get("duplicate_status") in ("NEW_REPORT", "MARKED_AS_UNIQUE", None)]
+    elif status_filter == "Suspected Duplicates":
+        filtered_geo = [r for r in geo_reports if r.get("duplicate_status") in ("POSSIBLE_DUPLICATE", "flagged", "NEEDS_MANUAL_REVIEW")]
+    elif status_filter == "Confirmed Duplicates":
+        filtered_geo = [r for r in geo_reports if r.get("duplicate_status") == "CONFIRMED_DUPLICATE"]
+    else:
+        filtered_geo = geo_reports
+
+    if not filtered_geo:
+        st.info("No inspection records with geographic coordinates match the selected filter.")
+        if no_geo_reports:
+            st.caption(f"ℹ️ Note: {len(no_geo_reports)} report(s) without GPS coordinates cannot be mapped.")
+    else:
+        geofence_points = []
+        marker_points = []
+
+        for r in filtered_geo:
+            dup_st = r.get("duplicate_status", "NEW_REPORT")
+            lat = float(r["latitude"])
+            lon = float(r["longitude"])
+            rep_id = str(r.get("inspection_id", ""))
+            date = str(r.get("date", "Unknown"))
+            sev = str(r.get("overall_severity", "MINOR"))
+            potholes = int(r.get("final_potholes", 0))
+
+            if dup_st == "CONFIRMED_DUPLICATE":
+                fill_color = [220, 53, 69, 50]
+                line_color = [220, 53, 69, 255]
+                st_label = f"Confirmed Duplicate (of #{r.get('duplicate_of', '')})"
+            elif dup_st in ("POSSIBLE_DUPLICATE", "flagged", "NEEDS_MANUAL_REVIEW"):
+                fill_color = [255, 165, 0, 50]
+                line_color = [255, 165, 0, 255]
+                st_label = "Possible Duplicate"
+            else:
+                fill_color = [0, 191, 255, 40]
+                line_color = [0, 191, 255, 255]
+                st_label = "Original Hazard Report"
+
+            geofence_points.append({
+                "lat": lat,
+                "lon": lon,
+                "radius": radius_slider,
+                "fill_color": fill_color,
+                "line_color": line_color,
+                "report_id": rep_id,
+                "date": date,
+                "severity": sev,
+                "potholes": potholes,
+                "status": st_label
+            })
+
+            marker_points.append({
+                "lat": lat,
+                "lon": lon,
+                "radius": 4,
+                "fill_color": line_color,
+                "line_color": [255, 255, 255, 255],
+                "report_id": rep_id,
+                "date": date,
+                "severity": sev,
+                "potholes": potholes,
+                "status": st_label
+            })
+
+        geofence_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=geofence_points,
+            get_position=["lon", "lat"],
+            get_radius="radius",
+            get_fill_color="fill_color",
+            get_line_color="line_color",
+            stroked=True,
+            filled=True,
+            line_width_min_pixels=2,
+            pickable=True
+        )
+
+        marker_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=marker_points,
+            get_position=["lon", "lat"],
+            get_radius="radius",
+            get_fill_color="fill_color",
+            get_line_color="line_color",
+            stroked=True,
+            filled=True,
+            line_width_min_pixels=2,
+            pickable=True
+        )
+
+        avg_lat = sum(p["lat"] for p in marker_points) / len(marker_points)
+        avg_lon = sum(p["lon"] for p in marker_points) / len(marker_points)
+        view_state = pdk.ViewState(latitude=avg_lat, longitude=avg_lon, zoom=16, pitch=0)
+
+        tooltip = {
+            "html": "<b>Report: {report_id}</b><br/>"
+                    "Status: <b>{status}</b><br/>"
+                    "Date: {date}<br/>"
+                    "Severity: {severity}<br/>"
+                    "Potholes: {potholes}<br/>"
+                    "GPS: {lat}, {lon}",
+            "style": {
+                "backgroundColor": "#1e1e1e",
+                "color": "#ffffff",
+                "fontSize": "12px",
+                "borderRadius": "4px",
+                "padding": "6px 10px",
+                "border": "1px solid #444"
+            }
+        }
+
+        deck = pdk.Deck(
+            layers=[geofence_layer, marker_layer],
+            initial_view_state=view_state,
+            tooltip=tooltip
+        )
+
+        st.pydeck_chart(deck, use_container_width=True)
+
+        st.markdown("""
+        <div style="display: flex; gap: 20px; font-size: 13px; margin-top: 10px; margin-bottom: 15px;">
+            <div><span style="color: #00BFFF; font-weight: bold;">●</span> <b>Original Reports</b> (Cyan geofence)</div>
+            <div><span style="color: #FFA500; font-weight: bold;">●</span> <b>Potential Duplicates</b> (Amber geofence)</div>
+            <div><span style="color: #DC3545; font-weight: bold;">●</span> <b>Confirmed Duplicates</b> (Red geofence)</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"**Showing {len(filtered_geo)} mapped road defect location(s) with active {radius_slider}m geofence.**")
+
+        st.markdown("#### 📍 Mapped Pothole Inspections")
+        for r in filtered_geo:
+            r_id = r.get("inspection_id", "")
+            r_st = r.get("duplicate_status", "NEW_REPORT")
+            r_badge = _duplicate_badge(r_st, r.get("duplicate_of"))
+            r_sev = _severity_badge(r.get("overall_severity", "MINOR"))
+            r_lat = r.get("latitude")
+            r_lon = r.get("longitude")
+
+            with st.expander(f"[{r_id}] {r.get('location', 'Road')} | GPS: {r_lat:.6f}, {r_lon:.6f}"):
+                c_map_img, c_map_info = st.columns([1, 2])
+                with c_map_img:
+                    p_crops = r.get("potholes", [])
+                    crop_displayed = False
+                    if p_crops and p_crops[0].get("crop_path"):
+                        c_pic = dd.load_pothole_crop(p_crops[0]["crop_path"])
+                        if c_pic is not None:
+                            st.image(c_pic[:, :, ::-1], caption=f"Pothole #{p_crops[0].get('pothole_idx', 0)} Crop", use_container_width=True)
+                            crop_displayed = True
+                    if not crop_displayed and "image" in r and r["image"] is not None:
+                        st.image(r["image"], caption="Inspection Photo", use_container_width=True)
+                    elif not crop_displayed:
+                        st.info("No crop thumbnail available")
+
+                with c_map_info:
+                    st.markdown(f"**Inspection ID:** `{r_id}`")
+                    st.markdown(f"**Status:** {r_badge}", unsafe_allow_html=True)
+                    st.markdown(f"**Severity:** {r_sev}", unsafe_allow_html=True)
+                    st.write(f"**Date:** {r.get('date', 'Unknown')}")
+                    st.write(f"**Potholes Detected:** {r.get('final_potholes', 0)} | **Cracks:** {r.get('final_cracks', 0)}")
+                    if r.get("duplicate_of"):
+                        st.info(f"🔗 Linked to Original Report: `#{r.get('duplicate_of')}`")
+
+        if no_geo_reports:
+            st.caption(f"ℹ️ {len(no_geo_reports)} report(s) lack GPS coordinates and are listed in the Dispatch Center for manual review.")
+
+
+# ==========================================
+# PAGE 3: DISPATCH CENTER
 # ==========================================
 elif page == "📋 Dispatch Center":
     st.markdown("""
@@ -924,9 +1238,7 @@ elif page == "📋 Dispatch Center":
                 s_badge = _severity_badge(sev_cat)
 
                 # Duplicate flag
-                dup_flag = ""
-                if rep.get("duplicate_status") == "flagged":
-                    dup_flag = ' <span class="badge badge-warn">⚠️ POSSIBLE DUPLICATE</span>'
+                dup_flag = " " + _duplicate_badge(rep.get("duplicate_status"), rep.get("duplicate_of"))
 
                 loc_str = rep.get("location") or "Location unavailable"
                 label = f"[{rep_id}] {rep_type} — {loc_str} | {rep.get('final_potholes', 0)} Potholes, {rep.get('final_cracks', 0)} Cracks"
@@ -1059,74 +1371,188 @@ elif page == "📋 Dispatch Center":
     # SUB-TAB: Duplicate Review
     # ------------------------------------------------------------------
     with dispatch_tabs[1]:
-        st.markdown("### 🔁 Duplicate Report Detection")
+        st.markdown("### 🔁 Intelligent Duplicate Pothole Review")
         st.caption(
-            "Compares reports by location similarity, damage types, and date proximity. "
-            "Flagged reports require manual review — no automatic deletion."
+            "Identifies potential duplicate reports of identical physical potholes by analyzing "
+            "geographic proximity (Haversine formula within 25m radius) and deep visual appearance similarity "
+            "(perceptual dHash, ORB feature keypoint matching, and intensity histogram correlation). "
+            "No reports are automatically discarded."
         )
 
         history = st.session_state.dispatch_history
         if len(history) < 2:
             st.info("Need at least 2 reports in Dispatch Center to run duplicate analysis.")
         else:
-            flagged_pairs = []
-            for i in range(len(history)):
-                matches = dd.find_duplicates(history[i], history, skip_index=i)
-                for j, sim in matches:
-                    if j > i:
-                        flagged_pairs.append((i, j, sim))
+            candidate_pairs = []
+            seen_pairs = set()
 
-            if not flagged_pairs:
+            # 1. Check reports explicitly flagged with duplicate candidates
+            for idx_b, rep_b in enumerate(history):
+                cands = rep_b.get("duplicate_candidates", [])
+                for cand in cands:
+                    orig_id = cand.get("original_report_id")
+                    idx_a = next((i for i, r in enumerate(history) if r.get("inspection_id") == orig_id), None)
+                    if idx_a is not None and idx_a != idx_b:
+                        pair_key = tuple(sorted([idx_a, idx_b]))
+                        if pair_key not in seen_pairs:
+                            seen_pairs.add(pair_key)
+                            candidate_pairs.append({
+                                "idx_orig": idx_a,
+                                "idx_new": idx_b,
+                                "rep_orig": history[idx_a],
+                                "rep_new": history[idx_b],
+                                "score": cand.get("similarity_score", 0.0),
+                                "distance_m": cand.get("distance_m"),
+                                "decision": cand.get("decision", "POSSIBLE_DUPLICATE"),
+                                "reasons": cand.get("reasons", []),
+                                "orig_crop_path": cand.get("original_crop_path"),
+                                "new_crop_path": (rep_b.get("potholes", [{}])[0].get("crop_path") if rep_b.get("potholes") else None)
+                            })
+
+            # 2. Run scanner across history for any additional matches
+            for i in range(len(history)):
+                p_matches = dd.find_pothole_duplicates(history[i], history, skip_index=i, radius_m=25.0)
+                for pm_match in p_matches:
+                    orig_id = pm_match.get("original_report_id")
+                    j = next((idx for idx, r in enumerate(history) if r.get("inspection_id") == orig_id), None)
+                    if j is not None and j != i:
+                        pair_key = tuple(sorted([i, j]))
+                        if pair_key not in seen_pairs:
+                            seen_pairs.add(pair_key)
+                            candidate_pairs.append({
+                                "idx_orig": j,
+                                "idx_new": i,
+                                "rep_orig": history[j],
+                                "rep_new": history[i],
+                                "score": pm_match.get("similarity_score", 0.0),
+                                "distance_m": pm_match.get("distance_m"),
+                                "decision": pm_match.get("decision", "POSSIBLE_DUPLICATE"),
+                                "reasons": pm_match.get("reasons", []),
+                                "orig_crop_path": pm_match.get("original_crop_path"),
+                                "new_crop_path": (history[i].get("potholes", [{}])[0].get("crop_path") if history[i].get("potholes") else None)
+                            })
+
+                # Fallback to general report similarity scanner
+                old_matches = dd.find_duplicates(history[i], history, skip_index=i)
+                for j, sim in old_matches:
+                    if j > i:
+                        pair_key = tuple(sorted([i, j]))
+                        if pair_key not in seen_pairs:
+                            seen_pairs.add(pair_key)
+                            candidate_pairs.append({
+                                "idx_orig": j,
+                                "idx_new": i,
+                                "rep_orig": history[j],
+                                "rep_new": history[i],
+                                "score": sim.get("score", 0.0),
+                                "distance_m": sim.get("geographic_distance_m"),
+                                "decision": "POSSIBLE_DUPLICATE" if sim.get("is_duplicate") else "NEEDS_MANUAL_REVIEW",
+                                "reasons": sim.get("reasons", []),
+                                "breakdown": sim.get("breakdown")
+                            })
+
+            if not candidate_pairs:
                 st.success("✅ No duplicate reports detected among current dispatch records.")
             else:
-                st.warning(f"⚠️ {len(flagged_pairs)} possible duplicate pair(s) detected.")
+                st.warning(f"⚠️ **{len(candidate_pairs)} candidate duplicate report pair(s) detected.** Manual review required.")
 
-                for i, j, sim in flagged_pairs:
-                    rep_a = history[i]
-                    rep_b = history[j]
-                    score = sim["score"]
-                    reasons = sim["reasons"]
-                    breakdown = sim["breakdown"]
+                for p_idx, pair in enumerate(candidate_pairs):
+                    rep_orig = pair["rep_orig"]
+                    rep_new = pair["rep_new"]
+                    orig_id = rep_orig.get("inspection_id", "ORIG")
+                    new_id = rep_new.get("inspection_id", "NEW")
+                    score = pair["score"]
+                    dist_m = pair.get("distance_m")
+                    decision = rep_new.get("duplicate_status") or pair["decision"]
 
-                    with st.expander(f"⚠️ [{rep_a.get('inspection_id', i+1)}] & [{rep_b.get('inspection_id', j+1)}] — Match: {score:.0%}"):
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.markdown(f"**Report #{rep_a.get('inspection_id', i+1)}**")
-                            st.write(f"Location: {rep_a.get('location', '')}")
-                            st.write(f"Date: {rep_a.get('date', '')}")
-                            st.write(f"Potholes: {rep_a.get('final_potholes', 0)} | Cracks: {rep_a.get('final_cracks', 0)}")
-                        with col_b:
-                            st.markdown(f"**Report #{rep_b.get('inspection_id', j+1)}**")
-                            st.write(f"Location: {rep_b.get('location', '')}")
-                            st.write(f"Date: {rep_b.get('date', '')}")
-                            st.write(f"Potholes: {rep_b.get('final_potholes', 0)} | Cracks: {rep_b.get('final_cracks', 0)}")
+                    dist_display = f"{dist_m:.1f} m" if dist_m is not None else "GPS Unavailable"
+                    status_badge = _duplicate_badge(decision, rep_new.get("duplicate_of"))
 
-                        st.markdown("**Similarity Factors:**")
-                        for r in reasons:
+                    with st.expander(f"⚠️ Comparison #{p_idx+1}: [{new_id}] vs Original [{orig_id}] — Match: {score:.0%} | {dist_display}", expanded=True):
+                        st.markdown(f"**Duplicate Status:** {status_badge}", unsafe_allow_html=True)
+
+                        c_left, c_right = st.columns(2)
+                        with c_left:
+                            st.markdown(f"#### 🏛️ Original Report: `{orig_id}`")
+                            st.write(f"**Date:** {rep_orig.get('date', 'Unknown')}")
+                            st.write(f"**Location:** {rep_orig.get('location', 'Unknown')}")
+                            if rep_orig.get("latitude") is not None and rep_orig.get("longitude") is not None:
+                                st.write(f"**GPS:** `{rep_orig['latitude']:.6f}, {rep_orig['longitude']:.6f}`")
+                            st.write(f"**Potholes:** {rep_orig.get('final_potholes', 0)} | **Cracks:** {rep_orig.get('final_cracks', 0)}")
+
+                            orig_crop_path = pair.get("orig_crop_path")
+                            orig_c_img = dd.load_pothole_crop(orig_crop_path) if orig_crop_path else None
+                            if orig_c_img is not None:
+                                st.image(orig_c_img[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
+                            elif "image" in rep_orig and rep_orig["image"] is not None:
+                                st.image(rep_orig["image"], caption="Original Inspection Image", use_container_width=True)
+                            else:
+                                st.info("Original image preview not available")
+
+                        with c_right:
+                            st.markdown(f"#### 🆕 Newly Submitted Report: `{new_id}`")
+                            st.write(f"**Date:** {rep_new.get('date', 'Unknown')}")
+                            st.write(f"**Location:** {rep_new.get('location', 'Unknown')}")
+                            if rep_new.get("latitude") is not None and rep_new.get("longitude") is not None:
+                                st.write(f"**GPS:** `{rep_new['latitude']:.6f}, {rep_new['longitude']:.6f}`")
+                            st.write(f"**Potholes:** {rep_new.get('final_potholes', 0)} | **Cracks:** {rep_new.get('final_cracks', 0)}")
+
+                            new_crop_path = pair.get("new_crop_path")
+                            new_c_img = dd.load_pothole_crop(new_crop_path) if new_crop_path else None
+                            if new_c_img is not None:
+                                st.image(new_c_img[:, :, ::-1], caption="Newly Submitted Pothole Crop", use_container_width=True)
+                            elif "image" in rep_new and rep_new["image"] is not None:
+                                st.image(rep_new["image"], caption="New Inspection Image", use_container_width=True)
+                            else:
+                                st.info("New image preview not available")
+
+                        st.markdown("---")
+                        st.markdown("**🔬 Match Metrics & Explainable Evidence:**")
+                        m_col1, m_col2, m_col3 = st.columns(3)
+                        with m_col1:
+                            st.metric("Geographic Distance", dist_display)
+                        with m_col2:
+                            st.metric("Visual Match Score", f"{score:.0%}")
+                        with m_col3:
+                            st.metric("Decision Category", decision)
+
+                        for r in pair.get("reasons", []):
                             st.write(f"• {r}")
-                        st.write(
-                            f"Breakdown — Location: {breakdown['location']:.0%} | "
-                            f"Damage: {breakdown['damage']:.0%} | Date: {breakdown['date']:.0%}"
-                        )
 
-                        dc1, dc2, dc3 = st.columns(3)
-                        with dc1:
-                            if st.button(f"🚩 Flag #{rep_a.get('inspection_id', i+1)}", key=f"fl_a_{i}_{j}"):
-                                history[i]["duplicate_status"] = "flagged"
-                                istore.update_inspection(rep_a.get("inspection_id"), {"duplicate_status": "flagged"})
-                                st.warning("Flagged as possible duplicate.")
-                        with dc2:
-                            if st.button(f"🚩 Flag #{rep_b.get('inspection_id', j+1)}", key=f"fl_b_{i}_{j}"):
-                                history[j]["duplicate_status"] = "flagged"
-                                istore.update_inspection(rep_b.get("inspection_id"), {"duplicate_status": "flagged"})
-                                st.warning("Flagged as possible duplicate.")
-                        with dc3:
-                            if st.button("✅ Mark Both Unique", key=f"unq_{i}_{j}"):
-                                history[i]["duplicate_status"] = "confirmed_unique"
-                                history[j]["duplicate_status"] = "confirmed_unique"
-                                istore.update_inspection(rep_a.get("inspection_id"), {"duplicate_status": "confirmed_unique"})
-                                istore.update_inspection(rep_b.get("inspection_id"), {"duplicate_status": "confirmed_unique"})
-                                st.success("Both marked unique.")
+                        st.markdown("---")
+                        st.markdown("**🛡️ Authority Action & Disposition (Records are preserved):**")
+                        bcol1, bcol2, bcol3 = st.columns(3)
+
+                        with bcol1:
+                            if st.button(f"✅ Confirm Duplicate", key=f"btn_confirm_{new_id}_{orig_id}_{p_idx}", use_container_width=True):
+                                rep_new["duplicate_status"] = "CONFIRMED_DUPLICATE"
+                                rep_new["duplicate_of"] = orig_id
+                                istore.update_inspection(new_id, {
+                                    "duplicate_status": "CONFIRMED_DUPLICATE",
+                                    "duplicate_of": orig_id
+                                })
+                                st.success(f"Report #{new_id} confirmed as duplicate of #{orig_id}. Both records preserved.")
+                                st.rerun()
+
+                        with bcol2:
+                            if st.button(f"🏷️ Mark as Different Pothole", key=f"btn_diff_{new_id}_{orig_id}_{p_idx}", use_container_width=True):
+                                rep_new["duplicate_status"] = "MARKED_AS_UNIQUE"
+                                rep_new["duplicate_of"] = None
+                                istore.update_inspection(new_id, {
+                                    "duplicate_status": "MARKED_AS_UNIQUE",
+                                    "duplicate_of": None
+                                })
+                                st.success(f"Report #{new_id} marked as unique physical defect.")
+                                st.rerun()
+
+                        with bcol3:
+                            if st.button(f"⏳ Review Later", key=f"btn_later_{new_id}_{orig_id}_{p_idx}", use_container_width=True):
+                                rep_new["duplicate_status"] = "NEEDS_MANUAL_REVIEW"
+                                istore.update_inspection(new_id, {
+                                    "duplicate_status": "NEEDS_MANUAL_REVIEW"
+                                })
+                                st.info(f"Report #{new_id} left for manual review.")
+                                st.rerun()
 
     # ------------------------------------------------------------------
     # SUB-TAB: Progress Monitor
@@ -1229,17 +1655,29 @@ elif page == "📊 Analytics":
     total_dispatches = len(history)
     total_potholes = sum(r.get("final_potholes", 0) for r in history)
     total_cracks = sum(r.get("final_cracks", 0) for r in history)
+    confirmed_dup_count = sum(1 for r in history if r.get("duplicate_status") == "CONFIRMED_DUPLICATE")
+    pending_dup_count = sum(1 for r in history if r.get("duplicate_status") in ("POSSIBLE_DUPLICATE", "flagged", "NEEDS_MANUAL_REVIEW"))
+    unique_active_hazards = max(0, total_potholes - confirmed_dup_count)
     verified_count = sum(1 for r in history if r.get("verification_status") == "VERIFIED" or r.get("verification", {}).get("status") == "VERIFIED")
     rejected_count = sum(1 for r in history if r.get("verification_status") == "REJECTED" or r.get("verification", {}).get("status") == "REJECTED")
     pending_count = total_dispatches - (verified_count + rejected_count)
 
+    st.markdown("**Hazard & Duplicate Metrics:**")
     tel1, tel2, tel3, tel4, tel5, tel6 = st.columns(6)
     with tel1: st.markdown(f'<div class="metric-box"><div class="metric-val">{total_dispatches}</div><div class="metric-label">TOTAL REPORTS</div></div>', unsafe_allow_html=True)
     with tel2: st.markdown(f'<div class="metric-box"><div class="metric-val">{total_potholes}</div><div class="metric-label">POTHOLES LOGGED</div></div>', unsafe_allow_html=True)
     with tel3: st.markdown(f'<div class="metric-box"><div class="metric-val">{total_cracks}</div><div class="metric-label">CRACKS LOGGED</div></div>', unsafe_allow_html=True)
-    with tel4: st.markdown(f'<div class="metric-box"><div class="metric-val">{verified_count}</div><div class="metric-label">VERIFIED</div></div>', unsafe_allow_html=True)
-    with tel5: st.markdown(f'<div class="metric-box"><div class="metric-val">{rejected_count}</div><div class="metric-label">REJECTED</div></div>', unsafe_allow_html=True)
-    with tel6: st.markdown(f'<div class="metric-box"><div class="metric-val">{pending_count}</div><div class="metric-label">AI PENDING</div></div>', unsafe_allow_html=True)
+    with tel4: st.markdown(f'<div class="metric-box"><div class="metric-val" style="color: #00BFFF;">{unique_active_hazards}</div><div class="metric-label">UNIQUE ACTIVE HAZARDS</div></div>', unsafe_allow_html=True)
+    with tel5: st.markdown(f'<div class="metric-box"><div class="metric-val" style="color: #FFA500;">{pending_dup_count}</div><div class="metric-label">DUPLICATES FOR REVIEW</div></div>', unsafe_allow_html=True)
+    with tel6: st.markdown(f'<div class="metric-box"><div class="metric-val" style="color: #DC3545;">{confirmed_dup_count}</div><div class="metric-label">CONFIRMED DUPLICATES</div></div>', unsafe_allow_html=True)
+
+    st.caption("ℹ️ Unique Active Hazards subtracts confirmed duplicate reports so municipal authorities avoid double-counting work orders.")
+
+    st.markdown("**Verification Authority Telemetry:**")
+    vtel1, vtel2, vtel3 = st.columns(3)
+    with vtel1: st.markdown(f'<div class="metric-box"><div class="metric-val">{verified_count}</div><div class="metric-label">VERIFIED REPORTS</div></div>', unsafe_allow_html=True)
+    with vtel2: st.markdown(f'<div class="metric-box"><div class="metric-val">{rejected_count}</div><div class="metric-label">REJECTED REPORTS</div></div>', unsafe_allow_html=True)
+    with vtel3: st.markdown(f'<div class="metric-box"><div class="metric-val">{pending_count}</div><div class="metric-label">AI PENDING REVIEW</div></div>', unsafe_allow_html=True)
 
     if history:
         st.markdown("---")
