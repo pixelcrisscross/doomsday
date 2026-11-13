@@ -1,0 +1,9 @@
+streamlit>=1.38
+ultralytics>=8.3
+huggingface_hub
+Pillow
+pandas
+opencv-python-headless>=4.9
+sqlalchemy
+google-generativeai
+geopy
