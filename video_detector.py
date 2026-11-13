@@ -23,6 +23,18 @@ try:
 except ImportError:
     HAS_IMAGEIO_FFMPEG = False
 
+try:
+    from tracker import SimpleTracker
+    HAS_TRACKER = True
+except ImportError:
+    HAS_TRACKER = False
+
+try:
+    from risk_scorer import enrich_detection_with_risk, compute_video_risk_summary
+    HAS_RISK_SCORER = True
+except ImportError:
+    HAS_RISK_SCORER = False
+
 # Supported video extensions
 SUPPORTED_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
@@ -317,8 +329,12 @@ def draw_detections(
             cv2.line(out, (x2, y2), (x2 - corner_len, y2), color, 3)
             cv2.line(out, (x2, y2), (x2, y2 - corner_len), color, 3)
             
-        # Label text pill
-        label = f"{cls_name} {int(conf * 100)}%"
+        # Label text pill — include track_id if present
+        track_id = det.get("track_id")
+        if track_id is not None:
+            label = f"#{track_id} {cls_name} {int(conf * 100)}%"
+        else:
+            label = f"{cls_name} {int(conf * 100)}%"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         font_thickness = 1
@@ -485,6 +501,9 @@ def process_video(
     start_time = time.time()
     last_known_detections: List[Dict[str, Any]] = []
     cancelled = False
+
+    # Initialize tracker for unique hazard counting
+    tracker = SimpleTracker() if HAS_TRACKER else None
     
     try:
         frame_idx = 0
@@ -511,6 +530,15 @@ def process_video(
                     frame_idx=frame_idx,
                     timestamp_sec=timestamp_sec
                 )
+                # Apply tracker to get persistent IDs
+                if tracker is not None and frame_dets:
+                    frame_dets = tracker.update(frame_dets, frame_idx)
+                    # Re-draw with track IDs on annotated frame
+                    annotated = draw_detections(frame, frame_dets, frame_idx, timestamp_sec)
+                # Enrich with risk scores
+                if HAS_RISK_SCORER:
+                    for d in frame_dets:
+                        enrich_detection_with_risk(d)
                 last_known_detections = frame_dets
                 all_detections.extend(frame_dets)
             else:
@@ -560,12 +588,14 @@ def process_video(
             final_video_path = web_playable_path
             
     # Generate structured summary statistics
+    unique_hazard_count = tracker.unique_count if tracker is not None else None
     summary = generate_detection_summary(
         detections=all_detections,
         processed_frames=processed_count,
         total_time_sec=total_processing_time,
         processing_fps=avg_processing_fps,
-        cancelled=cancelled
+        cancelled=cancelled,
+        unique_hazard_count=unique_hazard_count
     )
     
     return final_video_path, summary
@@ -576,10 +606,12 @@ def generate_detection_summary(
     processed_frames: int,
     total_time_sec: float,
     processing_fps: float,
-    cancelled: bool = False
+    cancelled: bool = False,
+    unique_hazard_count: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Computes class breakdowns, confidence aggregates, and frame-wise detection records.
+    Computes class breakdowns, confidence aggregates, risk distribution,
+    unique hazard count, and frame-wise detection records.
     """
     potholes = [d for d in detections if d["class_name"] == "Pothole"]
     longitudinal = [d for d in detections if d["class_name"] == "Longitudinal Crack"]
@@ -589,20 +621,29 @@ def generate_detection_summary(
     confs = [d["confidence"] for d in detections]
     avg_conf = float(np.mean(confs)) if confs else 0.0
     max_conf = float(np.max(confs)) if confs else 0.0
+
+    # Risk distribution
+    risk_distribution: Dict[str, int] = {"Low": 0, "Medium": 0, "High": 0, "Critical": 0}
+    if HAS_RISK_SCORER:
+        risk_summary = compute_video_risk_summary(detections)
+        risk_distribution = risk_summary["distribution"]
     
     # Format tabular rows for UI display
     table_rows = []
     for d in detections:
         box_str = f"[{d['box'][0]}, {d['box'][1]}, {d['box'][2]}, {d['box'][3]}]"
-        table_rows.append({
+        row = {
             "Frame": d["frame_idx"],
             "Timestamp": d["timestamp_str"],
+            "Track ID": d.get("track_id", "—"),
             "Defect": d["class_name"],
             "Confidence": f"{d['confidence']:.1%}",
+            "Risk": f"{d.get('risk_emoji', '')} {d.get('risk_category', '—')}",
             "Bounding Box": box_str,
             "Area (px)": d["area_pixels"],
             "Source": d["model_source"]
-        })
+        }
+        table_rows.append(row)
         
     return {
         "status": "cancelled" if cancelled else "completed",
@@ -612,11 +653,13 @@ def generate_detection_summary(
         "longitudinal_crack_detections": len(longitudinal),
         "transverse_crack_detections": len(transverse),
         "alligator_crack_detections": len(alligator),
+        "unique_hazard_count": unique_hazard_count,
         "average_confidence": round(avg_conf, 3),
         "average_confidence_pct": f"{avg_conf:.1%}",
         "max_confidence": round(max_conf, 3),
         "max_confidence_pct": f"{max_conf:.1%}",
         "processing_time_sec": round(total_time_sec, 2),
         "processing_fps": round(processing_fps, 2),
+        "risk_distribution": risk_distribution,
         "table_rows": table_rows
     }
