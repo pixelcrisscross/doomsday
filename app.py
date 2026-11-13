@@ -169,6 +169,18 @@ if "current_report" not in st.session_state:
     st.session_state.current_report = None
 if "video_report" not in st.session_state:
     st.session_state.video_report = None
+if "photo_state" not in st.session_state:
+    st.session_state.photo_state = "NO_IMAGE"
+if "photo_annotated_img" not in st.session_state:
+    st.session_state.photo_annotated_img = None
+if "photo_original_img" not in st.session_state:
+    st.session_state.photo_original_img = None
+if "photo_file_id" not in st.session_state:
+    st.session_state.photo_file_id = None
+if "photo_error" not in st.session_state:
+    st.session_state.photo_error = None
+if "photo_detections" not in st.session_state:
+    st.session_state.photo_detections = []
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -202,9 +214,10 @@ def cascade_predict(image_source, conf_threshold):
     Runs Tier 1 and Tier 2, returning result, model_name, and class counts.
     """
     if not models:
-        return None, "No models loaded", {}
+        return None, "No models loaded", {"potholes": 0, "longitudinal": 0, "transverse": 0, "alligator": 0, "error": "No models loaded"}
 
     last_result = None
+    errors = []
 
     for model_name, model in models.items():
         try:
@@ -224,8 +237,15 @@ def cascade_predict(image_source, conf_threshold):
                     elif canonical == "Alligator Crack":
                         counts["alligator"] += 1
                 return r, model_name, counts
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"{model_name}: {e}")
+
+    # If all models threw exceptions and no valid result was obtained:
+    if last_result is None and errors:
+        err_msg = "; ".join(errors)
+        return None, f"Inference Error: {err_msg}", {
+            "potholes": 0, "longitudinal": 0, "transverse": 0, "alligator": 0, "error": err_msg
+        }
 
     return last_result, "No detections (All Tiers)", {
         "potholes": 0, "longitudinal": 0, "transverse": 0, "alligator": 0
@@ -263,13 +283,30 @@ def _verification_badge(status):
 
 def _severity_badge(sev):
     """Returns HTML badge for a severity category."""
+    if not sev or sev == "N/A":
+        return '<span class="badge badge-info">⚪ N/A</span>'
     badges = {
         "MINOR":    '<span class="badge badge-success">🟢 MINOR</span>',
         "MODERATE": '<span class="badge badge-warn">🟡 MODERATE</span>',
         "SEVERE":   '<span class="badge badge-orange">🟠 SEVERE</span>',
         "CRITICAL": '<span class="badge badge-danger">🔴 CRITICAL</span>',
+        "NONE":     '<span class="badge badge-success">🟢 NONE (Intact)</span>',
     }
     return badges.get(sev, f'<span class="badge badge-info">{html.escape(str(sev))}</span>')
+
+
+def _risk_badge(risk):
+    """Returns HTML badge for a risk category."""
+    if not risk or risk == "N/A":
+        return '<span class="badge badge-info">⚪ N/A</span>'
+    badges = {
+        "Critical": '<span class="badge badge-danger">🔴 CRITICAL</span>',
+        "High":     '<span class="badge badge-orange">🟠 HIGH</span>',
+        "Medium":   '<span class="badge badge-warn">🟡 MEDIUM</span>',
+        "Low":      '<span class="badge badge-success">🟢 LOW</span>',
+        "None":     '<span class="badge badge-success">🟢 NONE (Safe)</span>',
+    }
+    return badges.get(risk, f'<span class="badge badge-info">{html.escape(str(risk))}</span>')
 
 
 def _duplicate_badge(dup_status, dup_of=None):
@@ -717,20 +754,62 @@ if page == "📸 Detection Studio":
     # TAB 2: PHOTO STUDIO
     # ------------------------------------------------------------------
     with tab_photo:
+        st.markdown("""
+        <div class="side-card">
+            <div class="card-title">PHOTO INSPECTION STUDIO</div>
+            <p style="font-size: 13px; color: #ccc; margin: 0;">
+                Upload a road photo for deep neural network hazard analysis. Detect potholes, longitudinal cracks,
+                transverse cracks, and alligator cracks, classify visual severity, compute risk estimates, and check for duplicates.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
         col_img, col_stats = st.columns([2.5, 1])
 
         with col_img:
-            up = st.file_uploader("Upload Road Photo", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+            up = st.file_uploader(
+                "Upload Road Photo",
+                type=["jpg", "jpeg", "png", "webp"],
+                help="Supported formats: .jpg, .jpeg, .png, .webp"
+            )
 
             # Location (Optional) Section
             st.markdown("<div style='margin-top: 6px; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #ddd;'>Location (Optional)</div>", unsafe_allow_html=True)
             photo_captured_loc = render_location_picker(key="photo_location_picker")
 
-            if up:
-                image = Image.open(up).convert("RGB")
-                img_w, img_h = image.size
+            # Manage upload state transitions
+            if up is None:
+                if st.session_state.get("photo_file_id") is not None:
+                    st.session_state.photo_state = "NO_IMAGE"
+                    st.session_state.photo_file_id = None
+                    st.session_state.photo_annotated_img = None
+                    st.session_state.photo_original_img = None
+                    st.session_state.photo_error = None
+                    st.session_state.photo_detections = []
+                    st.session_state.current_report = None
+                st.info("👋 Upload a road photo (.jpg, .jpeg, .png, .webp) above to begin detection.")
+            else:
+                current_up_id = f"{up.name}_{up.size}"
+                if st.session_state.get("photo_file_id") != current_up_id:
+                    # New file uploaded: load image safely and transition to READY
+                    try:
+                        img_pil = Image.open(up).convert("RGB")
+                        if img_pil.width <= 0 or img_pil.height <= 0:
+                            raise ValueError("Image has invalid dimensions.")
+                        st.session_state.photo_file_id = current_up_id
+                        st.session_state.photo_original_img = img_pil
+                        st.session_state.photo_annotated_img = None
+                        st.session_state.photo_error = None
+                        st.session_state.photo_detections = []
+                        st.session_state.current_report = None
+                        st.session_state.photo_state = "READY"
+                    except Exception as e:
+                        st.session_state.photo_file_id = current_up_id
+                        st.session_state.photo_original_img = None
+                        st.session_state.photo_state = "FAILED"
+                        st.session_state.photo_error = f"Failed to load image: {e}"
 
-                # Resolve location: device geolocation if captured, else EXIF GPS, else unavailable
+                # Resolve location metadata: device geolocation if captured, else EXIF GPS, else unavailable
                 photo_loc_meta = {
                     "latitude": None,
                     "longitude": None,
@@ -750,8 +829,8 @@ if page == "📸 Detection Studio":
                         "location_source": "DEVICE_GEOLOCATION",
                         "has_gps": True
                     }
-                else:
-                    exif_meta = lm.extract_image_location_metadata(image)
+                elif st.session_state.photo_original_img is not None:
+                    exif_meta = lm.extract_image_location_metadata(st.session_state.photo_original_img)
                     if exif_meta.get("has_gps"):
                         photo_loc_meta = exif_meta
 
@@ -763,200 +842,316 @@ if page == "📸 Detection Studio":
                 else:
                     st.info("📍 **Location unavailable** (No GPS provided)")
 
-                # 1. Run YOLO Cascade
-                with st.spinner("Running YOLO Cascade..."):
-                    result, model_used, counts = cascade_predict(image, conf)
-                    yolo_potholes = counts.get("potholes", 0)
-                    yolo_longitudinal = counts.get("longitudinal", 0)
-                    yolo_transverse = counts.get("transverse", 0)
-                    yolo_alligator = counts.get("alligator", 0)
-                    yolo_cracks = yolo_longitudinal + yolo_transverse + yolo_alligator
+                # If current_report already exists, keep its location updated in case user clicked location after detection
+                if st.session_state.current_report is not None:
+                    st.session_state.current_report["location"] = location_display
+                    st.session_state.current_report["latitude"] = photo_loc_meta["latitude"]
+                    st.session_state.current_report["longitude"] = photo_loc_meta["longitude"]
+                    st.session_state.current_report["location_source"] = photo_loc_meta["location_source"]
+                    st.session_state.current_report["location_metadata"] = photo_loc_meta
 
-                    # Compute per-defect severity and summary
-                    rep_id = istore.generate_inspection_id()
-                    defect_classifications = []
-                    potholes_list = []
+                # State-specific rendering in left column
+                if st.session_state.photo_state == "FAILED":
+                    st.error(f"❌ AI Detection Failed: {st.session_state.photo_error}")
+                    if st.session_state.photo_original_img is not None:
+                        st.image(st.session_state.photo_original_img, caption="Uploaded Image", use_container_width=True)
+                    if st.button("🔄 Retry Detection", type="primary", use_container_width=True):
+                        st.session_state.photo_state = "READY"
+                        st.rerun()
 
-                    if result and result.boxes is not None and len(result.boxes) > 0:
-                        boxes_xyxy = result.boxes.xyxy.cpu().numpy()
-                        confs = result.boxes.conf.cpu().numpy()
-                        clss = result.boxes.cls.cpu().numpy().astype(int)
-                        for b, cf, cid in zip(boxes_xyxy, confs, clss):
-                            cname = vd.normalize_class_name(result.names.get(cid, str(cid)))
-                            box_coords = [int(v) for v in b]
-                            sev = sc.classify_defect_severity(
-                                class_name=cname,
-                                box=box_coords,
-                                frame_width=img_w,
-                                frame_height=img_h,
-                                confidence=float(cf)
+                elif st.session_state.photo_state == "READY":
+                    img_w, img_h = st.session_state.photo_original_img.size
+                    st.markdown(f"**Uploaded Road Photo Preview ({img_w}×{img_h} px):**")
+                    st.image(st.session_state.photo_original_img, use_container_width=True)
+                    st.info("ℹ️ Photo loaded and ready for analysis. Click **🔍 Run AI Road Damage Detection** below to execute YOLO inference.")
+
+                    btn_c1, btn_c2 = st.columns([2, 1])
+                    with btn_c1:
+                        run_detection = st.button("🔍 Run AI Road Damage Detection", type="primary", use_container_width=True)
+                    with btn_c2:
+                        clear_photo = st.button("🔄 Reset / Clear Photo", use_container_width=True)
+
+                    if clear_photo:
+                        st.session_state.photo_state = "NO_IMAGE"
+                        st.session_state.photo_file_id = None
+                        st.session_state.photo_annotated_img = None
+                        st.session_state.photo_original_img = None
+                        st.session_state.photo_error = None
+                        st.session_state.photo_detections = []
+                        st.session_state.current_report = None
+                        st.rerun()
+
+                    if run_detection:
+                        with st.spinner("Running YOLO Neural Network Cascade inference..."):
+                            image = st.session_state.photo_original_img
+                            img_w, img_h = image.size
+                            result, model_used, counts = cascade_predict(image, conf)
+
+                            if result is None and counts.get("error"):
+                                st.session_state.photo_state = "FAILED"
+                                st.session_state.photo_error = f"Detection Error: {counts['error']}"
+                                st.rerun()
+
+                            yolo_potholes = counts.get("potholes", 0)
+                            yolo_longitudinal = counts.get("longitudinal", 0)
+                            yolo_transverse = counts.get("transverse", 0)
+                            yolo_alligator = counts.get("alligator", 0)
+                            yolo_cracks = yolo_longitudinal + yolo_transverse + yolo_alligator
+
+                            rep_id = istore.generate_inspection_id()
+                            defect_classifications = []
+                            potholes_list = []
+
+                            if result and result.boxes is not None and len(result.boxes) > 0:
+                                boxes_xyxy = result.boxes.xyxy.cpu().numpy()
+                                confs = result.boxes.conf.cpu().numpy()
+                                clss = result.boxes.cls.cpu().numpy().astype(int)
+                                for b, cf, cid in zip(boxes_xyxy, confs, clss):
+                                    cname = vd.normalize_class_name(result.names.get(cid, str(cid)))
+                                    box_coords = [int(v) for v in b]
+                                    sev = sc.classify_defect_severity(
+                                        class_name=cname,
+                                        box=box_coords,
+                                        frame_width=img_w,
+                                        frame_height=img_h,
+                                        confidence=float(cf)
+                                    )
+                                    area_px = max(0, (box_coords[2] - box_coords[0])) * max(0, (box_coords[3] - box_coords[1]))
+                                    r_info = rs.compute_risk({
+                                        "class_name": cname,
+                                        "confidence": float(cf),
+                                        "area_pixels": area_px
+                                    })
+                                    sev["risk_score"] = r_info["score"]
+                                    sev["risk_category"] = r_info["category"]
+
+                                    if cname == "Pothole":
+                                        p_idx = len(potholes_list)
+                                        crop_bgr = dd.extract_pothole_crop(image, box_coords, margin_pct=0.15)
+                                        crop_path = dd.save_pothole_crop(crop_bgr, report_id=rep_id, pothole_idx=p_idx)
+                                        dhash_val = dd.compute_dhash(crop_bgr)
+                                        sev["crop_path"] = crop_path
+                                        sev["crop_image"] = crop_bgr
+                                        sev["dhash"] = dhash_val
+                                        potholes_list.append({
+                                            "pothole_idx": p_idx,
+                                            "box": box_coords,
+                                            "crop_path": crop_path,
+                                            "crop_image": crop_bgr,
+                                            "dhash": dhash_val,
+                                            "severity": sev.get("severity_category", "MODERATE"),
+                                            "status": "NEW_REPORT"
+                                        })
+                                    defect_classifications.append(sev)
+
+                                sev_summary = sc.compute_severity_summary(defect_classifications)
+                                overall_sev = sev_summary["overall_severity"]
+                                avg_sev_score = sev_summary["average_severity_score"]
+                                sev_breakdown = sev_summary["breakdown"]
+                                annotated_rgb = result.plot()[:, :, ::-1]
+                            else:
+                                overall_sev = "NONE"
+                                avg_sev_score = 0.0
+                                sev_breakdown = {"MINOR": 0, "MODERATE": 0, "SEVERE": 0, "CRITICAL": 0}
+                                if result is not None:
+                                    annotated_rgb = result.plot()[:, :, ::-1]
+                                else:
+                                    annotated_rgb = np.array(image)
+
+                            # 2. Run Gemini Validation (Optional)
+                            gemini_potholes = 0
+                            gemini_cracks = 0
+                            gemini_reason = "Gemini not called (No API Key)"
+                            if gemini_api_key:
+                                with st.spinner("Gemini validating image..."):
+                                    gemini_data = validate_with_gemini(gemini_api_key, image)
+                                    gemini_potholes = gemini_data.get("pothole_count", 0)
+                                    gemini_cracks = gemini_data.get("crack_count", 0)
+                                    gemini_reason = gemini_data.get("reasoning", "No reasoning provided")
+
+                            # 3. Conflict Resolution
+                            final_potholes = max(yolo_potholes, gemini_potholes)
+                            final_cracks = max(yolo_cracks, gemini_cracks)
+                            conflict = (gemini_potholes > yolo_potholes) or (gemini_cracks > yolo_cracks)
+
+                            # Risk score for image detection
+                            total_defects = final_potholes + final_cracks
+                            if total_defects == 0:
+                                image_risk = "None"
+                            elif overall_sev == "CRITICAL":
+                                image_risk = "Critical"
+                            elif final_potholes >= 3 or overall_sev == "SEVERE":
+                                image_risk = "High"
+                            elif final_potholes >= 1 or final_cracks >= 3:
+                                image_risk = "Medium"
+                            else:
+                                image_risk = "Low"
+
+                            # Save state for Dispatch
+                            rep = _init_report_defaults({
+                                "inspection_id": rep_id,
+                                "type": "Photo Inspection",
+                                "media_type": "photo",
+                                "image": image,
+                                "location": location_display,
+                                "latitude": photo_loc_meta["latitude"],
+                                "longitude": photo_loc_meta["longitude"],
+                                "altitude_m": photo_loc_meta.get("altitude_m"),
+                                "location_source": photo_loc_meta["location_source"],
+                                "location_metadata": photo_loc_meta,
+                                "date": datetime.now().strftime("%d %b %Y, %H:%M"),
+                                "final_potholes": final_potholes,
+                                "final_cracks": final_cracks,
+                                "longitudinal_cracks": yolo_longitudinal,
+                                "transverse_cracks": yolo_transverse,
+                                "alligator_cracks": yolo_alligator,
+                                "yolo_potholes": yolo_potholes,
+                                "gemini_potholes": gemini_potholes,
+                                "gemini_reason": gemini_reason,
+                                "conflict": conflict,
+                                "model_used": model_used,
+                                "overall_severity": overall_sev,
+                                "severity_breakdown": sev_breakdown,
+                                "average_severity_score": avg_sev_score,
+                                "risk_category": image_risk,
+                                "detections": defect_classifications,
+                                "potholes": potholes_list,
+                                "summary": {
+                                    "pothole_count": final_potholes,
+                                    "crack_count": final_cracks,
+                                    "overall_severity": overall_sev,
+                                    "average_severity_score": avg_sev_score,
+                                    "risk_category": image_risk
+                                }
+                            })
+
+                            # Duplicate evaluation against history
+                            dup_matches = dd.find_pothole_duplicates(
+                                rep,
+                                st.session_state.dispatch_history,
+                                radius_m=25.0
                             )
-                            if cname == "Pothole":
-                                p_idx = len(potholes_list)
-                                crop_bgr = dd.extract_pothole_crop(image, box_coords, margin_pct=0.15)
-                                crop_path = dd.save_pothole_crop(crop_bgr, report_id=rep_id, pothole_idx=p_idx)
-                                dhash_val = dd.compute_dhash(crop_bgr)
-                                sev["crop_path"] = crop_path
-                                sev["crop_image"] = crop_bgr
-                                sev["dhash"] = dhash_val
-                                potholes_list.append({
-                                    "pothole_idx": p_idx,
-                                    "box": box_coords,
-                                    "crop_path": crop_path,
-                                    "crop_image": crop_bgr,
-                                    "dhash": dhash_val,
-                                    "severity": sev.get("severity_category", "MODERATE"),
-                                    "status": "NEW_REPORT"
-                                })
-                            defect_classifications.append(sev)
+                            if dup_matches:
+                                primary = dup_matches[0]
+                                rep["duplicate_status"] = primary["decision"]
+                                rep["duplicate_of"] = primary["original_report_id"]
+                                rep["duplicate_candidates"] = [
+                                    {
+                                        "original_report_id": m["original_report_id"],
+                                        "distance_m": m["distance_m"],
+                                        "similarity_score": m["similarity_score"],
+                                        "decision": m["decision"],
+                                        "reasons": m["reasons"],
+                                        "original_crop_path": m.get("original_crop_path")
+                                    }
+                                    for m in dup_matches
+                                ]
+                            else:
+                                rep["duplicate_status"] = "NEW_REPORT"
+                                rep["duplicate_of"] = None
+                                rep["duplicate_candidates"] = []
 
-                        sev_summary = sc.compute_severity_summary(defect_classifications)
-                        overall_sev = sev_summary["overall_severity"]
-                        avg_sev_score = sev_summary["average_severity_score"]
-                        sev_breakdown = sev_summary["breakdown"]
+                            st.session_state.current_report = rep
+                            st.session_state.photo_annotated_img = annotated_rgb
+                            st.session_state.photo_detections = defect_classifications
+                            st.session_state.photo_state = "COMPLETED" if total_defects > 0 else "NO_DEFECTS"
+                            st.rerun()
+
+                elif st.session_state.photo_state in ("COMPLETED", "NO_DEFECTS"):
+                    rep = st.session_state.current_report
+                    total_defects = (rep.get("final_potholes", 0) + rep.get("final_cracks", 0)) if rep else 0
+
+                    if st.session_state.photo_state == "COMPLETED":
+                        st.success(
+                            f"✅ **AI Detection Completed**: Found **{total_defects}** defect(s) "
+                            f"({rep.get('final_potholes', 0)} potholes, {rep.get('final_cracks', 0)} cracks) "
+                            f"using **{rep.get('model_used', 'YOLO')}** at **{int(conf*100)}%** confidence."
+                        )
                     else:
-                        overall_sev = "MINOR"
-                        avg_sev_score = 0.0
-                        sev_breakdown = {"MINOR": 0, "MODERATE": 0, "SEVERE": 0, "CRITICAL": 0}
+                        st.info(
+                            f"✅ **No Road Defects Detected**: Road surface appears intact at **{int(conf*100)}%** "
+                            f"confidence (Model: {rep.get('model_used', 'All Tiers')})."
+                        )
 
-                    if result:
-                        st.image(result.plot()[:, :, ::-1], use_container_width=True)
+                    if rep and rep.get("conflict"):
+                        st.warning("⚠️ **Conflict Detected!** Gemini found more defects than YOLO. Report updated to match Gemini.")
 
-                # 2. Run Gemini Validation (Optional)
-                gemini_potholes = 0
-                gemini_cracks = 0
-                gemini_reason = "Gemini not called (No API Key)"
-                if gemini_api_key:
-                    with st.spinner("Gemini validating image..."):
-                        gemini_data = validate_with_gemini(gemini_api_key, image)
-                        gemini_potholes = gemini_data.get("pothole_count", 0)
-                        gemini_cracks = gemini_data.get("crack_count", 0)
-                        gemini_reason = gemini_data.get("reasoning", "No reasoning provided")
+                    # Side-by-Side Comparison: Original vs YOLO Annotated
+                    c_orig_disp, c_ann_disp = st.columns(2)
+                    with c_orig_disp:
+                        st.markdown("**Original Photo**")
+                        st.image(st.session_state.photo_original_img, use_container_width=True)
+                    with c_ann_disp:
+                        st.markdown("**AI Detection (YOLO Annotations)**")
+                        if st.session_state.photo_annotated_img is not None:
+                            st.image(st.session_state.photo_annotated_img, use_container_width=True)
+                        else:
+                            st.image(st.session_state.photo_original_img, use_container_width=True)
 
-                # 3. Conflict Resolution
-                final_potholes = max(yolo_potholes, gemini_potholes)
-                final_cracks = max(yolo_cracks, gemini_cracks)
-                conflict = (gemini_potholes > yolo_potholes) or (gemini_cracks > yolo_cracks)
+                    # Download annotated image button & Re-run action
+                    btn_act1, btn_act2 = st.columns([2, 1])
+                    with btn_act1:
+                        if st.session_state.photo_annotated_img is not None:
+                            buf = io.BytesIO()
+                            Image.fromarray(st.session_state.photo_annotated_img).save(buf, format="JPEG", quality=95)
+                            stem_name = Path(up.name).stem if up else "photo"
+                            st.download_button(
+                                label="💾 Download Annotated Photo",
+                                data=buf.getvalue(),
+                                file_name=f"roadsentinel_{stem_name}_annotated.jpg",
+                                mime="image/jpeg",
+                                use_container_width=True
+                            )
+                    with btn_act2:
+                        if st.button("🔄 Re-run Detection", use_container_width=True):
+                            st.session_state.photo_state = "READY"
+                            st.rerun()
 
-                if conflict:
-                    st.warning("⚠️ **Conflict Detected!** Gemini found more defects than YOLO. Report updated to match Gemini.")
+                    # Duplicate alert banner & comparison if applicable
+                    if rep and rep.get("duplicate_candidates"):
+                        primary = rep["duplicate_candidates"][0]
+                        dist_txt = f"{primary['distance_m']:.1f}m" if primary.get("distance_m") is not None else "Unknown distance (GPS unavailable)"
+                        st.warning(
+                            f"⚠️ **POSSIBLE DUPLICATE DETECTED**: This pothole appears to have already been reported at "
+                            f"**{dist_txt}** away (Report `#{primary.get('original_report_id')}`)."
+                        )
+                        with st.expander("🔍 Side-by-Side Duplicate Visual Comparison", expanded=True):
+                            c_orig_ui, c_new_ui = st.columns(2)
+                            with c_orig_ui:
+                                st.markdown(f"**Original Report (#{primary.get('original_report_id')})**")
+                                if primary.get("original_crop_path"):
+                                    c_img = dd.load_pothole_crop(primary["original_crop_path"])
+                                    if c_img is not None:
+                                        st.image(c_img[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
+                                    else:
+                                        st.info("Original crop preview unavailable")
+                                else:
+                                    st.info("Original crop preview unavailable")
+                            with c_new_ui:
+                                st.markdown("**Newly Submitted Pothole Crop**")
+                                potholes_list = rep.get("potholes", [])
+                                if potholes_list and potholes_list[0].get("crop_image") is not None:
+                                    st.image(potholes_list[0]["crop_image"][:, :, ::-1], caption="New Pothole Crop", use_container_width=True)
+                                else:
+                                    st.image(st.session_state.photo_original_img, caption="New Inspection Image", use_container_width=True)
 
-                # Risk score for image detection
-                image_risk = "Low"
-                if yolo_potholes > 0:
-                    image_risk = "High" if yolo_potholes >= 3 else "Medium" if yolo_potholes >= 1 else "Low"
-                elif yolo_cracks > 0:
-                    image_risk = "Medium" if yolo_cracks >= 3 else "Low"
-
-                # Save state for Dispatch
-                st.session_state.current_report = _init_report_defaults({
-                    "inspection_id": rep_id,
-                    "type": "Photo Inspection",
-                    "media_type": "photo",
-                    "image": image,
-                    "location": location_display,
-                    "latitude": photo_loc_meta["latitude"],
-                    "longitude": photo_loc_meta["longitude"],
-                    "altitude_m": photo_loc_meta.get("altitude_m"),
-                    "location_source": photo_loc_meta["location_source"],
-                    "location_metadata": photo_loc_meta,
-                    "date": datetime.now().strftime("%d %b %Y, %H:%M"),
-                    "final_potholes": final_potholes,
-                    "final_cracks": final_cracks,
-                    "longitudinal_cracks": yolo_longitudinal,
-                    "transverse_cracks": yolo_transverse,
-                    "alligator_cracks": yolo_alligator,
-                    "yolo_potholes": yolo_potholes,
-                    "gemini_potholes": gemini_potholes,
-                    "gemini_reason": gemini_reason,
-                    "conflict": conflict,
-                    "model_used": model_used,
-                    "overall_severity": overall_sev,
-                    "severity_breakdown": sev_breakdown,
-                    "average_severity_score": avg_sev_score,
-                    "risk_category": image_risk,
-                    "detections": defect_classifications,
-                    "potholes": potholes_list,
-                    "summary": {
-                        "pothole_count": final_potholes,
-                        "crack_count": final_cracks,
-                        "overall_severity": overall_sev,
-                        "average_severity_score": avg_sev_score,
-                        "risk_category": image_risk
-                    }
-                })
-
-                # Duplicate evaluation against history
-                dup_matches = dd.find_pothole_duplicates(
-                    st.session_state.current_report,
-                    st.session_state.dispatch_history,
-                    radius_m=25.0
-                )
-                if dup_matches:
-                    primary = dup_matches[0]
-                    st.session_state.current_report["duplicate_status"] = primary["decision"]
-                    st.session_state.current_report["duplicate_of"] = primary["original_report_id"]
-                    st.session_state.current_report["duplicate_candidates"] = [
-                        {
-                            "original_report_id": m["original_report_id"],
-                            "distance_m": m["distance_m"],
-                            "similarity_score": m["similarity_score"],
-                            "decision": m["decision"],
-                            "reasons": m["reasons"],
-                            "original_crop_path": m.get("original_crop_path")
-                        }
-                        for m in dup_matches
-                    ]
-
-                    # Display prominent duplicate alert banner
-                    dist_txt = f"{primary['distance_m']:.1f}m" if primary.get("distance_m") is not None else "Unknown distance (GPS unavailable)"
-                    st.warning(
-                        f"⚠️ **POSSIBLE DUPLICATE DETECTED**: This pothole appears to have already been reported on "
-                        f"**{primary.get('original_date', 'earlier')}** at **{dist_txt}** away (Report `#{primary.get('original_report_id')}`)."
-                    )
-                    with st.expander("🔍 Side-by-Side Duplicate Visual Comparison", expanded=True):
-                        c_orig_ui, c_new_ui = st.columns(2)
-                        with c_orig_ui:
-                            st.markdown(f"**Original Report (#{primary.get('original_report_id')})**")
-                            orig_c = primary.get("original_crop")
-                            if orig_c is not None:
-                                st.image(orig_c[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
-                            elif primary.get("original_crop_path"):
-                                c_img = dd.load_pothole_crop(primary["original_crop_path"])
-                                if c_img is not None:
-                                    st.image(c_img[:, :, ::-1], caption="Original Reported Pothole Crop", use_container_width=True)
-                            else:
-                                st.info("Original crop preview unavailable")
-                        with c_new_ui:
-                            st.markdown("**Newly Submitted Pothole Crop**")
-                            new_c = primary.get("new_crop")
-                            if new_c is not None:
-                                st.image(new_c[:, :, ::-1], caption="New Pothole Crop", use_container_width=True)
-                            elif potholes_list and potholes_list[0].get("crop_image") is not None:
-                                st.image(potholes_list[0]["crop_image"][:, :, ::-1], caption="New Pothole Crop", use_container_width=True)
-                            else:
-                                st.image(image, caption="New Inspection Image", use_container_width=True)
-
-                        st.markdown(f"**Composite Visual Similarity:** `{primary.get('similarity_score', 0):.0%}`")
-                        for r_reason in primary.get("reasons", []):
-                            st.caption(f"• {r_reason}")
-                else:
-                    st.session_state.current_report["duplicate_status"] = "NEW_REPORT"
-                    st.session_state.current_report["duplicate_of"] = None
-                    st.session_state.current_report["duplicate_candidates"] = []
+                            st.markdown(f"**Composite Visual Similarity:** `{primary.get('similarity_score', 0):.0%}`")
+                            for r_reason in primary.get("reasons", []):
+                                st.caption(f"• {r_reason}")
 
         with col_stats:
-            if st.session_state.current_report:
-                rep = st.session_state.current_report
+            rep = st.session_state.current_report
+            photo_state = st.session_state.get("photo_state", "NO_IMAGE")
 
-                st.markdown('<div class="side-card"><div class="card-title">DETECTED DEFECTS</div>', unsafe_allow_html=True)
+            st.markdown('<div class="side-card"><div class="card-title">DETECTED DEFECTS</div>', unsafe_allow_html=True)
+
+            if photo_state in ("COMPLETED", "NO_DEFECTS") and rep:
                 classes = {
                     "Longitudinal Crack": {"count": rep.get('longitudinal_cracks', 0), "color": "#00BFFF"},
                     "Transverse Crack":   {"count": rep.get('transverse_cracks', 0),   "color": "#9370DB"},
                     "Alligator Crack":    {"count": rep.get('alligator_cracks', 0),    "color": "#32CD32"},
-                    "Pothole":            {"count": rep['final_potholes'],              "color": "#FF6347"}
+                    "Pothole":            {"count": rep.get('final_potholes', 0),       "color": "#FF6347"}
                 }
-
                 for cls, data in classes.items():
                     st.markdown(f"""
                     <div class="detect-item">
@@ -965,30 +1160,99 @@ if page == "📸 Detection Studio":
                     </div>
                     """, unsafe_allow_html=True)
 
+                # Individual defect breakdown with confidence scores
+                detections = rep.get("detections", [])
+                if detections:
+                    st.markdown("<div style='font-size: 11px; font-weight: 600; color: #bbb; margin-top: 8px; margin-bottom: 4px;'>CONFIDENCE SCORES</div>", unsafe_allow_html=True)
+                    for i, d in enumerate(detections, 1):
+                        cname = d.get("class_name", "Defect")
+                        conf_pct = d.get("confidence", 0.0) * 100
+                        st.markdown(f"""
+                        <div style="font-size: 11px; padding: 3px 6px; background: #222; border-radius: 4px; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center;">
+                            <span>#{i} <b>{cname}</b></span>
+                            <span style="color: #FFD700; font-family: monospace; font-weight: 600;">{conf_pct:.1f}%</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                 st.markdown("---")
-                st.markdown(f"**Visual Severity:** {_severity_badge(rep.get('overall_severity', 'MINOR'))}", unsafe_allow_html=True)
+                st.markdown(f"**Visual Severity:** {_severity_badge(rep.get('overall_severity', 'NONE'))}", unsafe_allow_html=True)
                 st.caption("⚠️ 2D visual estimate only. Does not measure physical depth or volume.")
 
-                risk_cat = rep.get("risk_category", "")
-                if risk_cat:
-                    st.markdown(f"**Risk Estimate:** `{risk_cat}` *(heuristic only)*")
+                st.markdown(f"**Risk Estimate:** {_risk_badge(rep.get('risk_category', 'None'))} *(heuristic)*", unsafe_allow_html=True)
 
-                st.markdown('</div>', unsafe_allow_html=True)
+            elif photo_state == "READY":
+                classes = {
+                    "Longitudinal Crack": {"count": "—", "color": "#00BFFF"},
+                    "Transverse Crack":   {"count": "—", "color": "#9370DB"},
+                    "Alligator Crack":    {"count": "—", "color": "#32CD32"},
+                    "Pothole":            {"count": "—", "color": "#FF6347"}
+                }
+                for cls, data in classes.items():
+                    st.markdown(f"""
+                    <div class="detect-item">
+                        <span><span class="dot" style="background-color:{data['color']};"></span>{cls.upper()}</span>
+                        <span style="color: #888;">{data['count']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.caption("ℹ️ Click 'Run AI Road Damage Detection' to analyze.")
+                st.markdown("---")
+                st.markdown(f"**Visual Severity:** {_severity_badge('N/A')}", unsafe_allow_html=True)
+                st.markdown(f"**Risk Estimate:** {_risk_badge('N/A')}", unsafe_allow_html=True)
 
-                st.markdown('<div class="side-card"><div class="card-title">REPORT SUMMARY</div>', unsafe_allow_html=True)
+            elif photo_state == "FAILED":
+                st.markdown("<div style='color: #ff6b6b; font-size: 13px;'>Detection failed to run. See error details in preview panel.</div>", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown(f"**Visual Severity:** {_severity_badge('N/A')}", unsafe_allow_html=True)
+                st.markdown(f"**Risk Estimate:** {_risk_badge('N/A')}", unsafe_allow_html=True)
+
+            else:
+                classes = {
+                    "Longitudinal Crack": {"count": "—", "color": "#00BFFF"},
+                    "Transverse Crack":   {"count": "—", "color": "#9370DB"},
+                    "Alligator Crack":    {"count": "—", "color": "#32CD32"},
+                    "Pothole":            {"count": "—", "color": "#FF6347"}
+                }
+                for cls, data in classes.items():
+                    st.markdown(f"""
+                    <div class="detect-item">
+                        <span><span class="dot" style="background-color:{data['color']};"></span>{cls.upper()}</span>
+                        <span style="color: #888;">{data['count']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.caption("ℹ️ Awaiting photo upload.")
+                st.markdown("---")
+                st.markdown(f"**Visual Severity:** {_severity_badge('N/A')}", unsafe_allow_html=True)
+                st.markdown(f"**Risk Estimate:** {_risk_badge('N/A')}", unsafe_allow_html=True)
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # REPORT SUMMARY Card
+            st.markdown('<div class="side-card"><div class="card-title">REPORT SUMMARY</div>', unsafe_allow_html=True)
+            if photo_state in ("COMPLETED", "NO_DEFECTS") and rep:
                 report_text = f"ID: {rep.get('inspection_id')}\n{rep['final_cracks']} cracks, {rep['final_potholes']} potholes.\nLocation: {rep['location']}\nDate: {rep['date']}"
                 st.code(report_text, language="text")
 
                 if st.button("➡️ Save & Send to Dispatch Center", type="primary", use_container_width=True):
-                    # Persist to local JSON store
                     istore.save_inspection(rep)
                     st.session_state.dispatch_history.insert(0, rep)
                     st.success(f"Report #{rep.get('inspection_id')} saved to Dispatch Center & JSON Store!")
-                st.markdown('</div>', unsafe_allow_html=True)
+            elif photo_state == "READY":
+                file_name_disp = up.name if up else "Photo"
+                st.code(f"Status: Ready for detection\nFile: {file_name_disp}\nAction: Click 'Run AI Road Damage Detection'", language="text")
+                st.button("➡️ Save & Send to Dispatch Center", disabled=True, use_container_width=True, help="Run detection before sending to dispatch.")
+            elif photo_state == "FAILED":
+                st.code("Status: Detection failed\nPlease retry analysis.", language="text")
+                st.button("➡️ Save & Send to Dispatch Center", disabled=True, use_container_width=True)
+            else:
+                st.code("No active photo inspection.\nUpload a road photo to begin.", language="text")
+                st.button("➡️ Save & Send to Dispatch Center", disabled=True, use_container_width=True)
 
-                if rep['conflict']:
-                    st.info(f"**Gemini Note:** {rep['gemini_reason']}")
-                st.caption(f"⚡ Model Used: {rep['model_used']}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if photo_state in ("COMPLETED", "NO_DEFECTS") and rep:
+                if rep.get('conflict'):
+                    st.info(f"**Gemini Note:** {rep.get('gemini_reason')}")
+                st.caption(f"⚡ Model Used: {rep.get('model_used')}")
 
 
 # ==========================================
