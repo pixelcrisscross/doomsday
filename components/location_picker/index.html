@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background: transparent;
+      color: #ffffff;
+      padding: 4px 0;
+    }
+    .loc-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .loc-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background-color: transparent;
+      color: #FFD700;
+      border: 1px solid #FFD700;
+      border-radius: 5px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: fit-content;
+    }
+    .loc-btn:hover:not(:disabled) {
+      background-color: #FFD700;
+      color: #000000;
+    }
+    .loc-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      border-color: #888;
+      color: #aaa;
+    }
+    .loc-card {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #ddd;
+      width: fit-content;
+    }
+    .badge-captured {
+      background-color: #28a745;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+    .coord-val {
+      color: #FFD700;
+      font-family: monospace;
+      font-weight: 600;
+    }
+    .btn-remove {
+      background: none;
+      border: none;
+      color: #dc3545;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0 4px;
+      font-weight: 500;
+    }
+    .btn-remove:hover {
+      color: #ff6b6b;
+    }
+    .err-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #ff6b6b;
+      margin-top: 2px;
+    }
+    .retry-btn {
+      color: #FFD700;
+      background: none;
+      border: none;
+      text-decoration: underline;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+    }
+    .retry-btn:hover {
+      color: #ffffff;
+    }
+    .status-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <div class="loc-container" id="app">
+    <!-- Default state: button -->
+    <div id="initial-view">
+      <button id="get-loc-btn" class="loc-btn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+        Use My Current Location
+      </button>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading-view" style="display: none;">
+      <span class="status-loading">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="2" x2="12" y2="6"></line>
+          <line x1="12" y1="18" x2="12" y2="22"></line>
+          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+          <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+          <line x1="2" y1="12" x2="6" y2="12"></line>
+          <line x1="18" y1="12" x2="22" y2="12"></line>
+          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+          <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+        </svg>
+        Getting your location...
+      </span>
+    </div>
+
+    <!-- Success state -->
+    <div id="success-view" style="display: none;">
+      <div class="loc-card">
+        <span class="badge-captured">Location captured</span>
+        <span>Latitude: <span id="disp-lat" class="coord-val"></span></span>
+        <span>Longitude: <span id="disp-lon" class="coord-val"></span></span>
+        <button id="remove-btn" class="btn-remove" type="button">[ Remove ]</button>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error-view" style="display: none;">
+      <div class="err-box">
+        <span id="err-message"></span>
+        <button id="retry-btn" class="retry-btn" type="button">Retry</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentLocation = null;
+
+    function postStreamlitMessage(type, data) {
+      window.parent.postMessage({
+        isStreamlitMessage: true,
+        type: type,
+        ...data
+      }, "*");
+    }
+
+    function sendHeight() {
+      // Send adjusted height
+      const height = Math.max(38, document.body.scrollHeight + 4);
+      postStreamlitMessage("streamlit:setFrameHeight", { height: height });
+    }
+
+    function sendValue(val) {
+      postStreamlitMessage("streamlit:setComponentValue", { value: val });
+    }
+
+    // Ready signal
+    postStreamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+
+    const initialView = document.getElementById("initial-view");
+    const loadingView = document.getElementById("loading-view");
+    const successView = document.getElementById("success-view");
+    const errorView = document.getElementById("error-view");
+    const getLocBtn = document.getElementById("get-loc-btn");
+    const removeBtn = document.getElementById("remove-btn");
+    const retryBtn = document.getElementById("retry-btn");
+    const dispLat = document.getElementById("disp-lat");
+    const dispLon = document.getElementById("disp-lon");
+    const errMessage = document.getElementById("err-message");
+
+    function showView(view) {
+      initialView.style.display = view === "initial" ? "block" : "none";
+      loadingView.style.display = view === "loading" ? "block" : "none";
+      successView.style.display = view === "success" ? "block" : "none";
+      errorView.style.display = view === "error" ? "block" : "none";
+      sendHeight();
+    }
+
+    function requestLocation() {
+      if (!navigator.geolocation) {
+        errMessage.textContent = "Unable to retrieve location (Geolocation not supported)";
+        showView("error");
+        return;
+      }
+
+      showView("loading");
+
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          currentLocation = {
+            latitude: lat,
+            longitude: lon,
+            accuracy_m: pos.coords.accuracy ? Math.round(pos.coords.accuracy) : null,
+            status: "captured"
+          };
+
+          dispLat.textContent = lat.toFixed(6);
+          dispLon.textContent = lon.toFixed(6);
+          showView("success");
+
+          // Report coordinates back to Streamlit
+          sendValue(currentLocation);
+        },
+        function (err) {
+          currentLocation = null;
+          let msg = "Unable to retrieve location";
+          if (err.code === err.PERMISSION_DENIED) {
+            msg = "Location permission denied";
+          } else if (err.code === err.POSITION_UNAVAILABLE) {
+            msg = "Unable to retrieve location (GPS unavailable)";
+          } else if (err.code === err.TIMEOUT) {
+            msg = "Location request timed out";
+          }
+          errMessage.textContent = msg;
+          showView("error");
+          sendValue(null);
+        },
+        options
+      );
+    }
+
+    getLocBtn.addEventListener("click", function () {
+      requestLocation();
+    });
+
+    retryBtn.addEventListener("click", function () {
+      requestLocation();
+    });
+
+    removeBtn.addEventListener("click", function () {
+      currentLocation = null;
+      showView("initial");
+      sendValue(null);
+    });
+
+    // Listen for render events from Streamlit host
+    window.addEventListener("message", function (event) {
+      if (event.data && event.data.type === "streamlit:render") {
+        const args = event.data.args || {};
+        const preset = args.saved_location;
+        if (preset && preset.latitude && preset.longitude && !currentLocation) {
+          currentLocation = preset;
+          dispLat.textContent = Number(preset.latitude).toFixed(6);
+          dispLon.textContent = Number(preset.longitude).toFixed(6);
+          showView("success");
+        } else if (!currentLocation) {
+          sendHeight();
+        }
+      }
+    });
+
+    sendHeight();
+  </script>
+</body>
+</html>

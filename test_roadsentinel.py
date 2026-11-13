@@ -644,10 +644,111 @@ def test_16_inspection_store():
 
 
 # =========================================================
+# TEST 17 — Simplified Location Attachment & Current Geolocation
+# =========================================================
+def test_17_simplified_location():
+    # 1. Image detection without location
+    img_path = "pothole.webp"
+    test_img = Image.open(img_path).convert("RGB")
+    _, _, counts = app.cascade_predict(test_img, conf_threshold=0.15)
+    _check(counts["potholes"] > 0, "Image detection runs without location attached")
+
+    rep_no_loc = app._init_report_defaults({
+        "type": "Photo Inspection",
+        "location": "Location unavailable",
+        "latitude": None,
+        "longitude": None,
+        "location_source": "UNAVAILABLE",
+        "final_potholes": counts["potholes"],
+        "final_cracks": 0
+    })
+    _check(rep_no_loc["latitude"] is None and rep_no_loc["longitude"] is None,
+           "Detection workflow succeeds with null coordinates")
+    _check(rep_no_loc["location"] == "Location unavailable",
+           "Location reported as 'Location unavailable'")
+
+    # 2. Image detection with captured current location
+    captured_lat = 15.849722
+    captured_lon = 74.497711
+    rep_with_loc = app._init_report_defaults({
+        "type": "Photo Inspection",
+        "location": f"GPS: {captured_lat:.6f}, {captured_lon:.6f}",
+        "latitude": captured_lat,
+        "longitude": captured_lon,
+        "location_source": "DEVICE_GEOLOCATION",
+        "final_potholes": counts["potholes"],
+        "final_cracks": 0
+    })
+    _check(rep_with_loc["latitude"] == captured_lat, "Captured latitude preserved with exact precision")
+    _check(rep_with_loc["longitude"] == captured_lon, "Captured longitude preserved with exact precision")
+    _check(rep_with_loc["location_source"] == "DEVICE_GEOLOCATION", "Location source marked as DEVICE_GEOLOCATION")
+
+    # 3. Video detection without location
+    v_rep_no_loc = app._init_report_defaults({
+        "type": "Video Inspection",
+        "location": "Location unavailable",
+        "latitude": None,
+        "longitude": None,
+        "location_source": "UNAVAILABLE",
+        "final_potholes": 16,
+        "final_cracks": 0
+    })
+    _check(v_rep_no_loc["latitude"] is None and v_rep_no_loc["longitude"] is None,
+           "Video detection succeeds with null location")
+
+    # 4. Video detection with captured location
+    v_rep_with_loc = app._init_report_defaults({
+        "type": "Video Inspection",
+        "location": f"GPS: {captured_lat:.6f}, {captured_lon:.6f}",
+        "latitude": captured_lat,
+        "longitude": captured_lon,
+        "location_source": "DEVICE_GEOLOCATION",
+        "final_potholes": 16,
+        "final_cracks": 0
+    })
+    _check(v_rep_with_loc["latitude"] == captured_lat, "Video report has captured latitude")
+    _check(v_rep_with_loc["longitude"] == captured_lon, "Video report has captured longitude")
+
+    # 5. Permission denied handling
+    denied_loc = None
+    _check(denied_loc is None, "Permission denied results in null location")
+    rep_denied = app._init_report_defaults({
+        "type": "Photo Inspection",
+        "location": "Location unavailable",
+        "latitude": None,
+        "longitude": None,
+        "location_source": "UNAVAILABLE"
+    })
+    _check(rep_denied["location"] == "Location unavailable", "Permission denied does not break report generation")
+
+    # 6. Verify captured coordinates reach persistent JSON store without precision loss
+    test_store = Path("data/test_geo_store.json")
+    if test_store.exists():
+        test_store.unlink()
+    try:
+        saved_id = istore.save_inspection(rep_with_loc, store_path=test_store)
+        fetched = istore.get_inspection(saved_id, store_path=test_store)
+        _check(fetched is not None, "Record saved to storage")
+        _check(abs(fetched["latitude"] - captured_lat) < 1e-9, "Latitude retrieved from storage with full precision")
+        _check(abs(fetched["longitude"] - captured_lon) < 1e-9, "Longitude retrieved from storage with full precision")
+        _check(fetched["location_source"] == "DEVICE_GEOLOCATION", "Location source persisted correctly")
+    finally:
+        if test_store.exists():
+            test_store.unlink()
+
+    # 7. Check removed UI elements are completely absent from app.py
+    app_text = Path("app.py").read_text()
+    _check("Optional: Attach GPX" not in app_text, "GPX file uploader completely removed from app.py")
+    _check("Manual Location Coordinates" not in app_text, "Manual Location Coordinates section completely removed from app.py")
+    _check("v_man_lat" not in app_text and "v_man_lon" not in app_text, "Video manual lat/lon inputs completely removed")
+    _check("p_man_lat" not in app_text and "p_man_lon" not in app_text, "Photo manual lat/lon inputs completely removed")
+
+
+# =========================================================
 # MAIN RUNNER
 # =========================================================
 def run_all_tests():
-    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 16 TESTS")
+    _banner("ROADSENTINEL AI SYSTEM VERIFICATION SUITE — 17 TESTS")
 
     test_cases = [
         (1,  "Model Loading & Hardware Status",                  test_1_models),
@@ -666,6 +767,7 @@ def run_all_tests():
         (14, "Damage Severity Classification (Visual 2D Proxy)", test_14_severity_classification),
         (15, "GPS, EXIF & Video Location Metadata Engine",        test_15_location_metadata),
         (16, "Local JSON Inspection Store (No Database)",         test_16_inspection_store),
+        (17, "Simplified Location & Current Geolocation Engine",  test_17_simplified_location),
     ]
 
     for num, name, fn in test_cases:
@@ -684,7 +786,7 @@ def run_all_tests():
         print(f"  Failed: {failed}")
         sys.exit(1)
     else:
-        print("\n  🎉 ALL 16 TESTS PASSED!")
+        print("\n  🎉 ALL 17 TESTS PASSED!")
         sys.exit(0)
 
 

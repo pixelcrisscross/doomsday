@@ -30,6 +30,7 @@ import risk_scorer as rs
 import severity_classifier as sc
 import location_metadata as lm
 import inspection_store as istore
+from location_picker import render_location_picker
 
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
@@ -407,14 +408,11 @@ if page == "📸 Detection Studio":
                 type=["mp4", "avi", "mov", "mkv"],
                 help="Supported formats: .mp4, .avi, .mov, .mkv. Max file size: 500 MB."
             )
-            gpx_file = st.file_uploader(
-                "Optional: Attach GPX GPS Track (.gpx)",
-                type=["gpx"],
-                help="Synchronize video frames with recorded GPS trackpoints from survey device."
-            )
+            st.markdown("<div style='margin-top: 8px; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #ddd;'>Location (Optional)</div>", unsafe_allow_html=True)
+            video_captured_loc = render_location_picker(key="video_location_picker")
 
         with vid_col_controls:
-            st.markdown('<div class="side-card"><div class="card-title">INFERENCE & GPS CONTROLS</div>', unsafe_allow_html=True)
+            st.markdown('<div class="side-card"><div class="card-title">INFERENCE CONTROLS</div>', unsafe_allow_html=True)
             v_conf = st.slider("Detection Confidence", 0.05, 0.90, float(conf), 0.05, key="video_conf_slider")
             frame_skip_option = st.selectbox(
                 "Frame Sampling (Skip)",
@@ -422,20 +420,7 @@ if page == "📸 Detection Studio":
                 format_func=lambda x: f"{x} - {'Process Every Frame (Highest Accuracy)' if x == 1 else f'Process Every {x} Frames (Faster Scan)'}",
                 key="video_frame_skip"
             )
-            gpx_offset = st.number_input(
-                "GPX Sync Offset (seconds)",
-                value=0.0, step=0.5,
-                help="Offset between video start and GPX track start in seconds."
-            )
             st.markdown('</div>', unsafe_allow_html=True)
-
-        # Manual location coordinates override for video
-        with st.expander("📍 Manual Location Coordinates (Optional override if GPS absent)"):
-            m_lat_col, m_lon_col = st.columns(2)
-            with m_lat_col:
-                v_manual_lat = st.text_input("Manual Latitude", placeholder="e.g. 15.8497", key="v_man_lat")
-            with m_lon_col:
-                v_manual_lon = st.text_input("Manual Longitude", placeholder="e.g. 74.4977", key="v_man_lon")
 
         if video_file is not None:
             temp_dir = tempfile.gettempdir()
@@ -451,16 +436,6 @@ if page == "📸 Detection Studio":
                 st.error(f"❌ Video Validation Failed: {val_msg}")
             else:
                 meta = vd.get_video_metadata(temp_video_path)
-
-                # Parse GPX if uploaded
-                gpx_trackpoints = []
-                if gpx_file is not None:
-                    gpx_bytes = gpx_file.getvalue()
-                    gpx_trackpoints = lm.parse_gpx_file(gpx_bytes)
-                    if gpx_trackpoints:
-                        st.success(f"📍 GPX sidecar parsed: {len(gpx_trackpoints)} trackpoints recorded.")
-                    else:
-                        st.warning("⚠️ GPX file parsed but contains 0 valid trackpoints.")
 
                 st.markdown("#### 📋 Video Properties")
                 m1, m2, m3, m4, m5, m6 = st.columns(6)
@@ -537,26 +512,17 @@ if page == "📸 Detection Studio":
                                 progress_callback=update_progress
                             )
 
-                            # Resolve location from GPX or manual input
+                            # Resolve location from user-captured current location
                             v_lat, v_lon = None, None
                             v_address = "Location unavailable"
                             v_loc_source = "UNAVAILABLE"
 
-                            if gpx_trackpoints:
-                                sync_pt = lm.match_video_timestamp_to_gpx(0.0, gpx_trackpoints, gpx_offset)
-                                if sync_pt.get("latitude") is not None:
-                                    v_lat = sync_pt["latitude"]
-                                    v_lon = sync_pt["longitude"]
-                                    v_loc_source = "GPX"
-                                    v_address = f"GPS (GPX): {v_lat:.6f}, {v_lon:.6f}"
-                            elif v_manual_lat and v_manual_lon:
-                                try:
-                                    v_lat = float(v_manual_lat.strip())
-                                    v_lon = float(v_manual_lon.strip())
-                                    v_loc_source = "MANUAL"
-                                    v_address = f"GPS (Manual): {v_lat:.6f}, {v_lon:.6f}"
-                                except Exception:
-                                    pass
+                            if video_captured_loc and video_captured_loc.get("status") == "captured":
+                                v_lat = video_captured_loc.get("latitude")
+                                v_lon = video_captured_loc.get("longitude")
+                                v_loc_source = "DEVICE_GEOLOCATION"
+                                addr = lm.reverse_geocode(v_lat, v_lon)
+                                v_address = addr if addr else f"GPS: {v_lat:.6f}, {v_lon:.6f}"
 
                             st.session_state.video_report = {
                                 "meta": meta,
@@ -731,37 +697,46 @@ if page == "📸 Detection Studio":
         with col_img:
             up = st.file_uploader("Upload Road Photo", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
 
-            # Manual location override for photo if EXIF is absent
-            with st.expander("📍 Manual GPS Coordinates (Optional override if image lacks EXIF)"):
-                p_lat_c, p_lon_c = st.columns(2)
-                with p_lat_c:
-                    p_manual_lat = st.text_input("Latitude", placeholder="e.g. 15.8497", key="p_man_lat")
-                with p_lon_c:
-                    p_manual_lon = st.text_input("Longitude", placeholder="e.g. 74.4977", key="p_man_lon")
+            # Location (Optional) Section
+            st.markdown("<div style='margin-top: 6px; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #ddd;'>Location (Optional)</div>", unsafe_allow_html=True)
+            photo_captured_loc = render_location_picker(key="photo_location_picker")
 
             if up:
                 image = Image.open(up).convert("RGB")
                 img_w, img_h = image.size
 
-                # Extract authentic GPS metadata without hardcoded fallbacks
-                exif_meta = lm.extract_image_location_metadata(image)
-                if p_manual_lat and p_manual_lon:
-                    try:
-                        exif_meta["latitude"] = float(p_manual_lat.strip())
-                        exif_meta["longitude"] = float(p_manual_lon.strip())
-                        exif_meta["location_source"] = "MANUAL"
-                        exif_meta["address"] = f"GPS (Manual): {exif_meta['latitude']:.6f}, {exif_meta['longitude']:.6f}"
-                        exif_meta["has_gps"] = True
-                    except Exception:
-                        pass
+                # Resolve location: device geolocation if captured, else EXIF GPS, else unavailable
+                photo_loc_meta = {
+                    "latitude": None,
+                    "longitude": None,
+                    "address": "Location unavailable",
+                    "location_source": "UNAVAILABLE",
+                    "has_gps": False
+                }
 
-                location_display = exif_meta["address"]
+                if photo_captured_loc and photo_captured_loc.get("status") == "captured":
+                    plat = photo_captured_loc.get("latitude")
+                    plon = photo_captured_loc.get("longitude")
+                    paddr = lm.reverse_geocode(plat, plon) or f"GPS: {plat:.6f}, {plon:.6f}"
+                    photo_loc_meta = {
+                        "latitude": plat,
+                        "longitude": plon,
+                        "address": paddr,
+                        "location_source": "DEVICE_GEOLOCATION",
+                        "has_gps": True
+                    }
+                else:
+                    exif_meta = lm.extract_image_location_metadata(image)
+                    if exif_meta.get("has_gps"):
+                        photo_loc_meta = exif_meta
+
+                location_display = photo_loc_meta["address"]
 
                 # Display Location Metadata Pill
-                if exif_meta["has_gps"]:
-                    st.success(f"📍 Location: **{location_display}** (Source: {exif_meta['location_source']})")
+                if photo_loc_meta["has_gps"]:
+                    st.success(f"📍 Location: **{location_display}** (Source: {photo_loc_meta['location_source']})")
                 else:
-                    st.warning("📍 **Location unavailable** (No EXIF GPS metadata found in uploaded image)")
+                    st.info("📍 **Location unavailable** (No GPS provided)")
 
                 # 1. Run YOLO Cascade
                 with st.spinner("Running YOLO Cascade..."):
@@ -835,11 +810,11 @@ if page == "📸 Detection Studio":
                     "media_type": "photo",
                     "image": image,
                     "location": location_display,
-                    "latitude": exif_meta["latitude"],
-                    "longitude": exif_meta["longitude"],
-                    "altitude_m": exif_meta.get("altitude_m"),
-                    "location_source": exif_meta["location_source"],
-                    "location_metadata": exif_meta,
+                    "latitude": photo_loc_meta["latitude"],
+                    "longitude": photo_loc_meta["longitude"],
+                    "altitude_m": photo_loc_meta.get("altitude_m"),
+                    "location_source": photo_loc_meta["location_source"],
+                    "location_metadata": photo_loc_meta,
                     "date": datetime.now().strftime("%d %b %Y, %H:%M"),
                     "final_potholes": final_potholes,
                     "final_cracks": final_cracks,
