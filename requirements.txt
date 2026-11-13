@@ -7,3 +7,5 @@ opencv-python-headless>=4.9
 sqlalchemy
 google-generativeai
 geopy
+av
+streamlit_webrtc
