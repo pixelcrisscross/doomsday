@@ -7,3 +7,4 @@ opencv-python-headless>=4.9
 sqlalchemy
 google-generativeai
 geopy
+imageio-ffmpeg
