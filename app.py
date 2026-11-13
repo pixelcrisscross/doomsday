@@ -5,10 +5,10 @@ from datetime import datetime
 import io
 import json
 import time
+import html
 
 import cv2
 import numpy as np
-import pandas as pd
 import streamlit as st
 from PIL import Image, ExifTags
 from ultralytics import YOLO
