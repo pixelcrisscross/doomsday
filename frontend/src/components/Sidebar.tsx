@@ -1,44 +1,51 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutGrid,
+  Home,
+  UserCheck,
+  Shield,
+  HardHat,
   Map,
   Camera,
   Video,
   CheckSquare,
-  HardHat,
   Activity,
   BarChart3,
   FileText,
   Settings,
-  HelpCircle,
   Plus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-interface NavItem {
-  path: string;
-  label: string;
-  icon: any;
-  badge?: string;
-  roleHighlight?: string;
-}
-
-const navItems: NavItem[] = [
-  { path: '/', label: 'Operations Dashboard', icon: LayoutGrid },
-  { path: '/damage-map', label: 'Damage Map & Heatmap', icon: Map, badge: 'Live' },
-  { path: '/image-detection', label: 'Image Studio', icon: Camera },
-  { path: '/video-detection', label: 'Video Engine', icon: Video },
-  { path: '/verification', label: 'Verification & Dispatch', icon: CheckSquare },
-  { path: '/worker', label: 'Contractor Portal', icon: HardHat, roleHighlight: 'worker' },
-  { path: '/track', label: 'Progress Tracker', icon: Activity },
-  { path: '/analytics', label: 'Analytics & Trends', icon: BarChart3 },
-  { path: '/reports', label: 'Reports', icon: FileText },
-];
-
 export const Sidebar: React.FC = () => {
   const { role } = useAuth();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+
+  const getDashboardPath = () => {
+    if (role === 'citizen') return '/citizen';
+    if (role === 'worker') return '/contractor';
+    return '/authority';
+  };
+
+  const getDashboardIcon = () => {
+    if (role === 'citizen') return UserCheck;
+    if (role === 'worker') return HardHat;
+    return Shield;
+  };
+
+  const DashboardIcon = getDashboardIcon();
+
+  const navItems = [
+    { path: '/', label: 'Landing Page & Role Selection', icon: Home },
+    { path: getDashboardPath(), label: `My Dashboard (${role.toUpperCase()})`, icon: DashboardIcon, activeHighlight: true },
+    { path: '/damage-map', label: 'Damage Map & Thermography', icon: Map, badge: 'Live' },
+    { path: '/track', label: 'Pothole Progress Tracker', icon: Activity },
+    { path: '/image-detection', label: 'Image Detection Studio', icon: Camera },
+    { path: '/video-detection', label: 'Video Detection Engine', icon: Video },
+    { path: '/verification', label: 'Verification & Dispatch', icon: CheckSquare },
+    { path: '/analytics', label: 'Analytics & Trends', icon: BarChart3 },
+    { path: '/reports', label: 'Inspection Reports', icon: FileText },
+  ];
 
   return (
     <aside className="w-16 sm:w-20 shrink-0 bg-[#0c0d10] border-r border-white/[0.06] flex flex-col items-center justify-between py-5 select-none z-30">
@@ -47,9 +54,8 @@ export const Sidebar: React.FC = () => {
         <NavLink
           to="/"
           className="w-11 h-11 rounded-2xl bg-[#16181e] border border-white/10 flex items-center justify-center text-[#d4f933] shadow-md hover:scale-105 transition-all group"
-          title="RoadSentinel AI"
+          title="Return to Landing Page"
         >
-          {/* Custom cyber plus/star emblem like in Haulix */}
           <div className="relative flex items-center justify-center">
             <Plus className="w-6 h-6 stroke-[3] text-[#d4f933] group-hover:rotate-90 transition-transform duration-300" />
             <span className="absolute w-2 h-2 rounded-full bg-[#d4f933] blur-[6px] opacity-75"></span>
@@ -60,7 +66,6 @@ export const Sidebar: React.FC = () => {
         <nav className="flex flex-col items-center gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isRoleActive = item.roleHighlight === role;
 
             return (
               <div
@@ -71,12 +76,12 @@ export const Sidebar: React.FC = () => {
               >
                 <NavLink
                   to={item.path}
-                  end={item.path === '/'}
+                  end={item.path === '/' || item.path === '/citizen' || item.path === '/authority' || item.path === '/contractor'}
                   className={({ isActive }) =>
                     `w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-200 relative ${
                       isActive
-                        ? 'bg-white text-black shadow-lg shadow-white/10 scale-100 font-bold'
-                        : isRoleActive
+                        ? 'bg-white text-black shadow-lg shadow-white/10 font-bold scale-100'
+                        : item.activeHighlight
                         ? 'bg-[#1e2129] text-[#d4f933] border border-[#d4f933]/30'
                         : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
                     }`
@@ -92,7 +97,7 @@ export const Sidebar: React.FC = () => {
                   )}
                 </NavLink>
 
-                {/* Floating Tooltip Pill */}
+                {/* Floating Tooltip */}
                 {hoveredItem === item.path && (
                   <div className="absolute left-16 z-50 px-3 py-1.5 rounded-xl bg-[#181a20] border border-white/10 text-white text-xs font-medium whitespace-nowrap shadow-2xl backdrop-blur-md pointer-events-none flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-150">
                     <span>{item.label}</span>
@@ -109,7 +114,7 @@ export const Sidebar: React.FC = () => {
         </nav>
       </div>
 
-      {/* Bottom Dock: Help & Settings */}
+      {/* Bottom Dock: Settings */}
       <div className="flex flex-col items-center gap-2 pt-4 border-t border-white/[0.06] w-full">
         <NavLink
           to="/settings"

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   Bell,
@@ -16,7 +16,8 @@ import {
   Moon,
   Shield,
   HardHat,
-  UserCheck
+  UserCheck,
+  Home
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -25,6 +26,7 @@ import { UserRole, CityPotholeSummary } from '../types';
 import { Modal } from './Modal';
 
 export const Navbar: React.FC = () => {
+  const navigate = useNavigate();
   const { user, role, loginAs, googleLogin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
@@ -65,6 +67,9 @@ export const Navbar: React.FC = () => {
   const handleRoleSelect = async (selectedRole: UserRole) => {
     setRoleDropdownOpen(false);
     await loginAs(selectedRole);
+    if (selectedRole === 'citizen') navigate('/citizen');
+    else if (selectedRole === 'worker') navigate('/contractor');
+    else navigate('/authority');
   };
 
   const handleGoogleSubmit = async (e: React.FormEvent) => {
@@ -81,6 +86,7 @@ export const Navbar: React.FC = () => {
       setGoogleModalOpen(false);
       setGoogleEmail('');
       setGoogleName('');
+      navigate(googleRole === 'authority' ? '/authority' : googleRole === 'worker' ? '/contractor' : '/citizen');
     } catch (err) {
       console.error('Google Auth Failed', err);
     } finally {
@@ -271,7 +277,16 @@ export const Navbar: React.FC = () => {
                 </div>
               </button>
 
-              <div className="pt-2 border-t border-white/[0.06]">
+              <div className="pt-2 border-t border-white/[0.06] space-y-1">
+                <Link
+                  to="/"
+                  onClick={() => setRoleDropdownOpen(false)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-left text-xs text-slate-300 hover:bg-white/[0.06] transition-colors"
+                >
+                  <Home className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Choose Portal (Landing Page)</span>
+                </Link>
+
                 <button
                   onClick={() => {
                     setRoleDropdownOpen(false);

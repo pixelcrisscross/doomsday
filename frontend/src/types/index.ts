@@ -95,21 +95,31 @@ export interface InspectionStatusCheckResponse {
 }
 
 export interface HeatmapPoint {
-  latitude: number;
-  longitude: number;
-  weight: number;
+  lat?: number;
+  lng?: number;
+  intensity?: number;
+  count?: number;
+  latitude?: number;
+  longitude?: number;
+  weight?: number;
   severity: SeverityLevel;
-  potholes_count: number;
+  potholes_count?: number;
+  inspection_id?: string;
+  repair_status?: string;
 }
 
 export interface CityPotholeSummary {
-  city: string;
+  city_name?: string;
+  city?: string;
   total_potholes: number;
   active_hazards: number;
   under_repair: number;
   repaired_count: number;
-  critical_potholes: number;
-  last_updated: string;
+  verified_count?: number;
+  pending_count?: number;
+  repair_completion_rate?: number;
+  critical_potholes?: number;
+  last_updated?: string;
 }
 
 export interface DefectDetection {
