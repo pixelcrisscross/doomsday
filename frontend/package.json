@@ -10,8 +10,10 @@
     "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('node_modules/@rollup/wasm-node')) fs.cpSync('node_modules/@rollup/wasm-node', 'node_modules/rollup', {recursive:true, force:true})\""
   },
   "dependencies": {
+    "@types/leaflet.heat": "^0.2.5",
     "axios": "^1.7.7",
     "leaflet": "^1.9.4",
+    "leaflet.heat": "^1.0.1",
     "lucide-react": "^0.439.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

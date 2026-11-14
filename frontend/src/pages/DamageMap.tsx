@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { HeatLayer } from 'leaflet.heat';
 import {
-  MapPin,
   Flame,
   Layers,
   Plus,
@@ -15,15 +15,134 @@ import {
   AlertTriangle,
   HardHat,
   ArrowUpRight,
-  Filter,
-  CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Sliders,
+  Compass,
+  MapPin
 } from 'lucide-react';
 
 import { api } from '../services/api';
 import { DamageMapPoint, HeatmapPoint, CityPotholeSummary } from '../types';
 
-// Ensures Leaflet recalculates dimensions properly on render
+// Map Base Tiles
+const MAP_TILE_PRESETS: Record<string, { name: string; url: string; attribution: string; maxZoom: number }> = {
+  voyager: {
+    name: 'Street / Voyager (Standard)',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a>, &copy; <a href="https://openstreetmap.org">OSM</a>',
+    maxZoom: 19
+  },
+  dark: {
+    name: 'Dark Tactical (HAULIX)',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19
+  },
+  osm: {
+    name: 'OpenStreetMap Standard',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://openstreetmap.org">OSM</a> contributors',
+    maxZoom: 19
+  },
+  satellite: {
+    name: 'Satellite Imagery',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: '&copy; Esri &mdash; Earthstar Geographics',
+    maxZoom: 18
+  }
+};
+
+// Continuous GIS Density Heatmap Layer Component (Vladimir Agafonkin / Leaflet.heat)
+interface ContinuousHeatmapProps {
+  points: HeatmapPoint[];
+  radius?: number;
+  blur?: number;
+  minOpacity?: number;
+}
+
+const ContinuousHeatmapLayer: React.FC<ContinuousHeatmapProps> = ({
+  points,
+  radius = 42,
+  blur = 28,
+  minOpacity = 0.35
+}) => {
+  const map = useMap();
+  const heatLayerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!map) return;
+
+    // Filter valid numeric lat/lng and intensities
+    const validData: Array<[number, number, number]> = points
+      .filter((p) => {
+        const lat = Number(p.lat ?? (p as any).latitude);
+        const lng = Number(p.lng ?? (p as any).longitude);
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      })
+      .map((p) => {
+        const lat = Number(p.lat ?? (p as any).latitude);
+        const lng = Number(p.lng ?? (p as any).longitude);
+        const intensity = Math.min(1.0, Math.max(0.15, Number(p.intensity) || 0.5));
+        return [lat, lng, intensity];
+      });
+
+    if (validData.length === 0) {
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current);
+        heatLayerRef.current = null;
+      }
+      return;
+    }
+
+    // Exact continuous GIS thermal gradient matching standard reference:
+    // Translucent Blue -> Cyan -> Vibrant Green -> Yellow -> Warm Orange -> Deep Crimson Red Core
+    const gradientConfig = {
+      0.15: '#2563eb', // Outer diffuse blue
+      0.32: '#06b6d4', // Cyan transition
+      0.52: '#22c55e', // Vibrant green
+      0.72: '#eab308', // Warm yellow
+      0.86: '#f97316', // Orange
+      1.00: '#dc2626'  // Deep crimson red core
+    };
+
+    const options = {
+      radius,
+      blur,
+      maxZoom: 16,
+      max: 1.0,
+      minOpacity,
+      gradient: gradientConfig
+    };
+
+    try {
+      if (heatLayerRef.current) {
+        heatLayerRef.current.setLatLngs(validData);
+        heatLayerRef.current.setOptions(options);
+      } else {
+        const layer = new HeatLayer(validData, options);
+        map.addLayer(layer as any);
+        heatLayerRef.current = layer;
+      }
+    } catch (e) {
+      console.error('Error updating continuous heatmap layer:', e);
+    }
+
+    return () => {
+      if (heatLayerRef.current) {
+        try {
+          map.removeLayer(heatLayerRef.current);
+        } catch {
+          // ignore cleanup errors on map unmount
+        }
+        heatLayerRef.current = null;
+      }
+    };
+  }, [map, points, radius, blur, minOpacity]);
+
+  return null;
+};
+
+// Ensures Leaflet recalculates viewport bounds properly on load and resize
 const MapResizer: React.FC<{ center: [number, number]; zoom: number }> = ({ center, zoom }) => {
   const map = useMap();
   useEffect(() => {
@@ -36,13 +155,13 @@ const MapResizer: React.FC<{ center: [number, number]; zoom: number }> = ({ cent
   return null;
 };
 
-// Vibrant Thermographic Color Palette
+// Vibrant Pin Marker Palette
 const VIBRANT_SEV_COLORS: Record<string, { core: string; halo: string; label: string }> = {
-  CRITICAL: { core: '#ff0055', halo: 'rgba(255, 0, 85, 0.4)', label: 'Critical' },
-  SEVERE: { core: '#ff8800', halo: 'rgba(255, 136, 0, 0.35)', label: 'Severe' },
-  MODERATE: { core: '#d4f933', halo: 'rgba(212, 249, 51, 0.3)', label: 'Moderate' },
-  MINOR: { core: '#00f0ff', halo: 'rgba(0, 240, 255, 0.25)', label: 'Minor' },
-  NONE: { core: '#71717a', halo: 'rgba(113, 113, 122, 0.2)', label: 'None' }
+  CRITICAL: { core: '#dc2626', halo: 'rgba(220, 38, 38, 0.4)', label: 'Critical' },
+  SEVERE: { core: '#f97316', halo: 'rgba(249, 115, 22, 0.35)', label: 'Severe' },
+  MODERATE: { core: '#eab308', halo: 'rgba(234, 179, 8, 0.3)', label: 'Moderate' },
+  MINOR: { core: '#06b6d4', halo: 'rgba(6, 182, 212, 0.25)', label: 'Minor' },
+  NONE: { core: '#22c55e', halo: 'rgba(34, 197, 94, 0.2)', label: 'Clean / Repaired' }
 };
 
 // Custom Glowing Pin Marker
@@ -50,174 +169,70 @@ const createGlowingMarker = (color: string, isCritical = false) => {
   return L.divIcon({
     className: 'custom-map-marker',
     html: `
-      <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+      <div style="position: relative; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
         <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: ${color}; opacity: 0.35; ${isCritical ? 'animation: neonPulse 2s infinite;' : ''}"></div>
-        <div style="width: 13px; height: 13px; border-radius: 50%; background-color: ${color}; border: 2px solid #ffffff; box-shadow: 0 0 12px ${color};"></div>
+        <div style="width: 14px; height: 14px; border-radius: 50%; background-color: ${color}; border: 2px solid #ffffff; box-shadow: 0 0 12px ${color};"></div>
       </div>
     `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
 };
 
-// Rich Bengaluru road distress points if database has few geotags
-const SAMPLE_BENGALURU_POINTS: DamageMapPoint[] = [
-  {
-    inspection_id: 'RS-BLR-01',
-    latitude: 12.9756,
-    longitude: 77.6066,
-    location_name: 'MG Road Metro Station Corridor',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'CRITICAL',
-    severity_score: 0.92,
-    risk_category: 'Critical',
-    potholes: 3,
-    cracks: 1,
-    media_type: 'photo',
-    date: '14 Nov 2026, 08:30',
-    verification_status: 'VERIFIED',
-    duplicate_status: 'NEW_REPORT'
-  },
-  {
-    inspection_id: 'RS-BLR-02',
-    latitude: 12.9352,
-    longitude: 77.6245,
-    location_name: 'Koramangala 80ft Road Junction',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'SEVERE',
-    severity_score: 0.78,
-    risk_category: 'High',
-    potholes: 2,
-    cracks: 2,
-    media_type: 'photo',
-    date: '14 Nov 2026, 07:15',
-    verification_status: 'VERIFIED',
-    duplicate_status: 'NEW_REPORT'
-  },
-  {
-    inspection_id: 'RS-BLR-03',
-    latitude: 12.9784,
-    longitude: 77.6408,
-    location_name: 'Indiranagar 100ft Road near 12th Main',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'MODERATE',
-    severity_score: 0.54,
-    risk_category: 'Medium',
-    potholes: 1,
-    cracks: 0,
-    media_type: 'photo',
-    date: '14 Nov 2026, 06:45',
-    verification_status: 'AI_PENDING',
-    duplicate_status: 'NEW_REPORT'
-  },
-  {
-    inspection_id: 'RS-BLR-04',
-    latitude: 12.9260,
-    longitude: 77.6762,
-    location_name: 'Outer Ring Road (Bellandur Flyover Ramp)',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'CRITICAL',
-    severity_score: 0.95,
-    risk_category: 'Critical',
-    potholes: 4,
-    cracks: 2,
-    media_type: 'video',
-    date: '14 Nov 2026, 05:20',
-    verification_status: 'VERIFIED',
-    duplicate_status: 'NEW_REPORT'
-  },
-  {
-    inspection_id: 'RS-BLR-05',
-    latitude: 13.0358,
-    longitude: 77.5970,
-    location_name: 'Hebbal Flyover Northbound Ramp',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'SEVERE',
-    severity_score: 0.81,
-    risk_category: 'High',
-    potholes: 2,
-    cracks: 1,
-    media_type: 'photo',
-    date: '14 Nov 2026, 04:10',
-    verification_status: 'VERIFIED',
-    duplicate_status: 'NEW_REPORT'
-  },
-  {
-    inspection_id: 'RS-BLR-06',
-    latitude: 12.9698,
-    longitude: 77.7499,
-    location_name: 'Whitefield Main Road (ITPL Gateway)',
-    location_source: 'DEVICE_GEOLOCATION',
-    overall_severity: 'MINOR',
-    severity_score: 0.35,
-    risk_category: 'Low',
-    potholes: 1,
-    cracks: 0,
-    media_type: 'photo',
-    date: '13 Nov 2026, 21:00',
-    verification_status: 'VERIFIED',
-    duplicate_status: 'NEW_REPORT'
-  }
-];
-
 export const DamageMap: React.FC = () => {
-  const [points, setPoints] = useState<DamageMapPoint[]>(SAMPLE_BENGALURU_POINTS);
+  // Pure dynamic data loaded directly from real backend database
+  const [points, setPoints] = useState<DamageMapPoint[]>([]);
   const [heatmapPoints, setHeatmapPoints] = useState<HeatmapPoint[]>([]);
   const [cityStats, setCityStats] = useState<CityPotholeSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Map settings
+  const [tileKey, setTileKey] = useState<keyof typeof MAP_TILE_PRESETS>('voyager');
   const [mapZoom, setMapZoom] = useState(13);
   const [mapCenter, setMapCenter] = useState<[number, number]>([12.9716, 77.5946]);
-  const [viewMode, setViewMode] = useState<'pins' | 'heatmap'>('heatmap');
+  const [viewMode, setViewMode] = useState<'heatmap' | 'pins'>('heatmap');
   const [selectedSeverity, setSelectedSeverity] = useState('ALL');
 
+  // Heatmap controls
+  const [heatRadius, setHeatRadius] = useState(42);
+  const [heatBlur, setHeatBlur] = useState(28);
+
   // Floating HUD Telemetry Card State
-  const [selectedPoint, setSelectedPoint] = useState<DamageMapPoint>(SAMPLE_BENGALURU_POINTS[0]);
+  const [selectedPoint, setSelectedPoint] = useState<DamageMapPoint | null>(null);
   const [hudCardOpen, setHudCardOpen] = useState(true);
 
+  // Fetch real data from live backend
   const fetchMapData = async () => {
     setLoading(true);
     try {
-      const [pts, heat, stats] = await Promise.allSettled([
+      const [ptsRes, heatRes, statsRes] = await Promise.allSettled([
         api.getDamagePoints(),
         api.getHeatmapPoints(),
         api.getCityStats('Bengaluru Urban')
       ]);
 
-      let validPts = pts.status === 'fulfilled' && Array.isArray(pts.value) && pts.value.length > 0
-        ? pts.value.filter((p: any) => p && typeof p.latitude === 'number' && !isNaN(p.latitude))
-        : [];
+      if (ptsRes.status === 'fulfilled' && Array.isArray(ptsRes.value)) {
+        const validPts = ptsRes.value.filter(
+          (p: any) => p && typeof p.latitude === 'number' && !isNaN(p.latitude)
+        );
+        setPoints(validPts);
 
-      // Combine with sample points to ensure rich map density
-      const combined = [...validPts, ...SAMPLE_BENGALURU_POINTS];
-      // Deduplicate by inspection_id
-      const uniquePts = Array.from(new Map(combined.map(p => [p.inspection_id, p])).values());
-      setPoints(uniquePts);
-
-      if (uniquePts.length > 0) {
-        setMapCenter([uniquePts[0].latitude, uniquePts[0].longitude]);
-        setSelectedPoint(uniquePts[0]);
+        if (validPts.length > 0) {
+          // Center on the first real hazard location
+          setMapCenter([validPts[0].latitude, validPts[0].longitude]);
+          setSelectedPoint(validPts[0]);
+        }
       }
 
-      if (heat.status === 'fulfilled' && Array.isArray(heat.value)) {
-        setHeatmapPoints(heat.value);
-      } else {
-        // Fallback heatmap points from unique points
-        setHeatmapPoints(uniquePts.map(p => ({
-          lat: p.latitude,
-          lng: p.longitude,
-          intensity: p.overall_severity === 'CRITICAL' ? 0.95 : p.overall_severity === 'SEVERE' ? 0.8 : 0.5,
-          count: p.potholes || 1,
-          severity: p.overall_severity
-        })));
+      if (heatRes.status === 'fulfilled' && Array.isArray(heatRes.value)) {
+        setHeatmapPoints(heatRes.value);
       }
 
-      if (stats.status === 'fulfilled') {
-        setCityStats(stats.value);
+      if (statsRes.status === 'fulfilled') {
+        setCityStats(statsRes.value);
       }
     } catch (err) {
-      console.error('Failed to load map data:', err);
+      console.error('Failed to load real map telemetry data:', err);
     } finally {
       setLoading(false);
     }
@@ -231,21 +246,26 @@ export const DamageMap: React.FC = () => {
     ? points
     : points.filter(p => p.overall_severity === selectedSeverity);
 
-  // Zoom controls
+  // Zoom and navigation controls
   const handleZoomIn = () => setMapZoom(prev => Math.min(prev + 1, 18));
-  const handleZoomOut = () => setMapZoom(prev => Math.max(prev - 1, 10));
+  const handleZoomOut = () => setMapZoom(prev => Math.max(prev - 1, 9));
   const handleRecenter = () => {
     if (points.length > 0) {
       setMapCenter([points[0].latitude, points[0].longitude]);
       setMapZoom(13);
+    } else {
+      setMapCenter([12.9716, 77.5946]);
+      setMapZoom(12);
     }
   };
 
-  // Speedometer needle angle (-135deg to +135deg)
+  // Active severity score for HUD gauge
   const activeSevScore = selectedPoint?.severity_score
     ? Math.round(selectedPoint.severity_score <= 1.0 ? selectedPoint.severity_score * 100 : selectedPoint.severity_score)
-    : 85;
+    : selectedPoint?.overall_severity === 'CRITICAL' ? 88 : 55;
   const needleAngle = -135 + (Math.max(0, Math.min(100, activeSevScore)) / 100) * 270;
+
+  const currentTile = MAP_TILE_PRESETS[tileKey] || MAP_TILE_PRESETS.voyager;
 
   return (
     <div className="relative w-full h-[calc(100vh-6rem)] rounded-3xl overflow-hidden border border-white/[0.08] shadow-2xl bg-[#0c0d10]">
@@ -259,13 +279,15 @@ export const DamageMap: React.FC = () => {
       >
         <MapResizer center={mapCenter} zoom={mapZoom} />
 
-        {/* High-contrast CartoDB Dark Matter Tiles */}
+        {/* Selected Base Tile Layer */}
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          key={tileKey}
+          attribution={currentTile.attribution}
+          url={currentTile.url}
+          maxZoom={currentTile.maxZoom}
         />
 
-        {/* Contractor Dispatch Route Line */}
+        {/* Contractor Dispatch Corridor Route Line */}
         {points.length >= 2 && (
           <Polyline
             positions={[
@@ -283,7 +305,23 @@ export const DamageMap: React.FC = () => {
           />
         )}
 
-        {/* 1. PIN MARKERS MODE */}
+        {/* 1. CONTINUOUS GIS DENSITY HEATMAP LAYER */}
+        {viewMode === 'heatmap' && (
+          <ContinuousHeatmapLayer
+            points={heatmapPoints.length > 0 ? heatmapPoints : points.map(p => ({
+              lat: p.latitude,
+              lng: p.longitude,
+              intensity: p.overall_severity === 'CRITICAL' ? 0.95 : p.overall_severity === 'SEVERE' ? 0.8 : 0.5,
+              count: p.potholes,
+              severity: p.overall_severity
+            }))}
+            radius={heatRadius}
+            blur={heatBlur}
+            minOpacity={0.32}
+          />
+        )}
+
+        {/* 2. PIN MARKERS MODE */}
         {viewMode === 'pins' && filteredPoints.map((pt) => {
           const lat = Number(pt.latitude);
           const lng = Number(pt.longitude);
@@ -305,20 +343,32 @@ export const DamageMap: React.FC = () => {
               }}
             >
               <Popup>
-                <div className="p-2 space-y-1.5 text-xs font-sans min-w-[210px] bg-[#14161b] text-white rounded-xl">
+                <div className="p-2 space-y-1.5 text-xs font-sans min-w-[220px] bg-[#14161b] text-white rounded-xl">
                   <div className="flex items-center justify-between">
                     <span className="font-bold font-mono text-[#d4f933]">#{pt.inspection_id}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase" style={{ backgroundColor: `${colors.core}25`, color: colors.core }}>
+                    <span
+                      className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                      style={{ backgroundColor: colors.core, color: '#ffffff' }}
+                    >
                       {pt.overall_severity}
                     </span>
                   </div>
-                  <div className="text-slate-300 truncate">{pt.location_name}</div>
-                  <div className="text-[11px] text-slate-400">
-                    Defects: <b>{pt.potholes}</b> Potholes, <b>{pt.cracks}</b> Cracks
+                  <div className="text-[11px] text-slate-300 font-medium">
+                    {pt.location_name}
                   </div>
-                  <div className="pt-2 border-t border-white/10 flex items-center justify-between">
-                    <Link to={`/track?id=${pt.inspection_id}`} className="text-[#d4f933] hover:underline flex items-center gap-1 font-semibold text-[11px]">
-                      Track Progress <ArrowUpRight className="w-3 h-3" />
+                  <div className="pt-1 border-t border-white/10 grid grid-cols-2 gap-1 text-[10px] text-slate-400">
+                    <div>Potholes: <b className="text-white">{pt.potholes}</b></div>
+                    <div>Cracks: <b className="text-white">{pt.cracks}</b></div>
+                    <div>Source: <b className="text-[#d4f933]">{pt.location_source}</b></div>
+                    <div>Status: <b className="text-white">{pt.verification_status}</b></div>
+                  </div>
+                  <div className="pt-1.5 flex justify-end">
+                    <Link
+                      to={`/track?id=${pt.inspection_id}`}
+                      className="text-[10px] font-bold text-[#d4f933] hover:underline flex items-center gap-1"
+                    >
+                      <span>Track Progress</span>
+                      <ArrowUpRight className="w-3 h-3" />
                     </Link>
                   </div>
                 </div>
@@ -326,78 +376,106 @@ export const DamageMap: React.FC = () => {
             </Marker>
           );
         })}
-
-        {/* 2. VIBRANT THERMOGRAPHIC HEATMAP MODE */}
-        {viewMode === 'heatmap' && (heatmapPoints.length > 0 ? heatmapPoints : points.map(p => ({
-          lat: p.latitude,
-          lng: p.longitude,
-          intensity: p.overall_severity === 'CRITICAL' ? 0.95 : 0.6,
-          count: p.potholes,
-          severity: p.overall_severity
-        }))).map((hp: any, i: number) => {
-          const lat = Number(hp.lat ?? hp.latitude);
-          const lng = Number(hp.lng ?? hp.longitude);
-          if (!lat || !lng || isNaN(lat) || isNaN(lng)) return null;
-
-          const sev = hp.severity || 'MODERATE';
-          const colors = VIBRANT_SEV_COLORS[sev] || VIBRANT_SEV_COLORS.MINOR;
-          const weight = hp.intensity ?? hp.weight ?? 0.6;
-          const baseRadius = 55 + weight * 70; // 55m - 125m radius
-
-          return (
-            <React.Fragment key={`vibrant-heat-${i}`}>
-              {/* Outer atmospheric aura */}
-              <Circle
-                center={[lat, lng]}
-                radius={baseRadius * 1.8}
-                pathOptions={{
-                  color: 'transparent',
-                  fillColor: colors.core,
-                  fillOpacity: 0.16,
-                  weight: 0
-                }}
-              />
-              {/* Mid-density chromatic halo */}
-              <Circle
-                center={[lat, lng]}
-                radius={baseRadius * 1.3}
-                pathOptions={{
-                  color: 'transparent',
-                  fillColor: colors.core,
-                  fillOpacity: 0.32,
-                  weight: 0
-                }}
-              />
-              {/* Epicenter intense core */}
-              <Circle
-                center={[lat, lng]}
-                radius={baseRadius}
-                pathOptions={{
-                  color: colors.core,
-                  fillColor: colors.core,
-                  fillOpacity: 0.65,
-                  weight: 1.5
-                }}
-              />
-            </React.Fragment>
-          );
-        })}
       </MapContainer>
+
+      {/* Top Bar: View Mode, Base Tile Selector & Heatmap Density Sliders */}
+      <div className="absolute top-5 left-5 right-28 z-20 flex flex-wrap items-center gap-2 pointer-events-auto">
+        {/* Toggle Mode: Heatmap vs Pins */}
+        <div className="flex items-center p-1 rounded-2xl bg-[#14161b]/95 border border-white/10 backdrop-blur-xl shadow-2xl">
+          <button
+            onClick={() => setViewMode('heatmap')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              viewMode === 'heatmap'
+                ? 'bg-gradient-to-r from-blue-600 via-green-500 to-red-500 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Flame className="w-3.5 h-3.5 text-white" />
+            <span>Continuous Heatmap</span>
+          </button>
+
+          <button
+            onClick={() => setViewMode('pins')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              viewMode === 'pins'
+                ? 'bg-white text-black shadow-lg'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            <span>Pin Markers ({points.length})</span>
+          </button>
+        </div>
+
+        {/* Base Tile Preset Selector */}
+        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#14161b]/95 border border-white/10 backdrop-blur-xl shadow-2xl text-xs">
+          <Layers className="w-3.5 h-3.5 text-slate-400 ml-2" />
+          <select
+            value={tileKey}
+            onChange={(e) => setTileKey(e.target.value as any)}
+            className="bg-transparent text-white text-xs font-medium pr-3 py-1 rounded-xl focus:outline-none cursor-pointer"
+          >
+            {Object.entries(MAP_TILE_PRESETS).map(([k, val]) => (
+              <option key={k} value={k} className="bg-[#14161b] text-white">
+                {val.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Heatmap Radius / Blur Density Controller (Visible in Heatmap Mode) */}
+        {viewMode === 'heatmap' && (
+          <div className="hidden lg:flex items-center gap-3 px-3.5 py-1.5 rounded-2xl bg-[#14161b]/95 border border-white/10 backdrop-blur-xl shadow-2xl text-xs text-slate-300">
+            <Sliders className="w-3.5 h-3.5 text-[#d4f933]" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">Radius:</span>
+              <input
+                type="range"
+                min="25"
+                max="65"
+                value={heatRadius}
+                onChange={(e) => setHeatRadius(Number(e.target.value))}
+                className="w-16 accent-[#d4f933] cursor-pointer"
+              />
+              <span className="font-mono text-[10px] text-white w-6">{heatRadius}px</span>
+            </div>
+            <div className="w-[1px] h-3 bg-white/10"></div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">Blur:</span>
+              <input
+                type="range"
+                min="15"
+                max="45"
+                value={heatBlur}
+                onChange={(e) => setHeatBlur(Number(e.target.value))}
+                className="w-16 accent-[#d4f933] cursor-pointer"
+              />
+              <span className="font-mono text-[10px] text-white w-6">{heatBlur}px</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Active Inspection Badge */}
+        <div className="px-3 py-1.5 rounded-2xl bg-[#14161b]/95 border border-white/10 backdrop-blur-xl text-xs font-mono text-slate-300 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>{points.length} Real Geotagged Hazard Reports</span>
+        </div>
+      </div>
 
       {/* Top-Right: Realistic HUD Compass Rose Widget */}
       <div className="absolute top-5 right-5 z-20 pointer-events-none select-none">
-        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full compass-ring flex items-center justify-center relative p-1">
+        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full compass-ring flex items-center justify-center relative p-1">
           <div className="absolute inset-1 rounded-full border border-white/10 flex items-center justify-center">
-            <span className="absolute top-1 text-[9px] font-extrabold text-white">N</span>
-            <span className="absolute right-1.5 text-[9px] font-extrabold text-slate-400">E</span>
-            <span className="absolute bottom-1 text-[9px] font-extrabold text-slate-400">S</span>
-            <span className="absolute left-1.5 text-[9px] font-extrabold text-slate-400">W</span>
-            <span className="absolute top-3 left-3 text-[8px] font-extrabold text-[#d4f933] drop-shadow-[0_0_6px_#d4f933]">NW</span>
+            <span className="absolute top-1 text-[8px] font-extrabold text-white">N</span>
+            <span className="absolute right-1 text-[8px] font-extrabold text-slate-400">E</span>
+            <span className="absolute bottom-1 text-[8px] font-extrabold text-slate-400">S</span>
+            <span className="absolute left-1 text-[8px] font-extrabold text-slate-400">W</span>
+            <span className="absolute top-2 left-2 text-[7px] font-extrabold text-[#d4f933] drop-shadow-[0_0_6px_#d4f933]">NW</span>
           </div>
           <div className="relative w-full h-full flex items-center justify-center rotate-[-45deg] transition-transform duration-700">
-            <div className="absolute top-3 w-1.5 h-9 bg-gradient-to-t from-white to-[#ff5500] rounded-t-full shadow-[0_0_8px_#ff5500]"></div>
-            <div className="absolute bottom-3 w-1.5 h-9 bg-gradient-to-b from-white to-slate-600 rounded-b-full"></div>
-            <div className="w-3.5 h-3.5 rounded-full bg-[#181a20] border-2 border-white/40 shadow-inner z-10"></div>
+            <div className="absolute top-2.5 w-1.5 h-8 bg-gradient-to-t from-white to-[#ff5500] rounded-t-full shadow-[0_0_8px_#ff5500]"></div>
+            <div className="absolute bottom-2.5 w-1.5 h-8 bg-gradient-to-b from-white to-slate-600 rounded-b-full"></div>
+            <div className="w-3 h-3 rounded-full bg-[#181a20] border-2 border-white/40 shadow-inner z-10"></div>
           </div>
         </div>
       </div>
@@ -409,7 +487,7 @@ export const DamageMap: React.FC = () => {
           className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${
             viewMode === 'heatmap' ? 'bg-[#d4f933] text-black font-bold' : 'text-slate-300 hover:bg-white/10'
           }`}
-          title="Toggle Heatmap / Pins"
+          title="Toggle Continuous Heatmap / Pins"
         >
           <Flame className="w-4 h-4" />
         </button>
@@ -443,43 +521,40 @@ export const DamageMap: React.FC = () => {
         <button
           onClick={fetchMapData}
           className="w-9 h-9 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors"
-          title="Refresh Data"
+          title="Refresh Live Data"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Bottom-Left: Thermographic Color Legend Bar */}
-      <div className="absolute bottom-6 left-6 z-20 hidden md:flex items-center gap-3 px-4 py-2 rounded-2xl bg-[#14161b]/90 border border-white/10 backdrop-blur-xl shadow-2xl text-xs">
-        <span className="font-semibold text-slate-300 flex items-center gap-1.5">
-          <Flame className="w-3.5 h-3.5 text-[#ff0055]" /> Density Gradient:
-        </span>
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#00f0ff] shadow-[0_0_6px_#00f0ff]"></span>
-          <span>Minor (Cyan)</span>
+      {/* Bottom-Left: Continuous GIS Gradient Color Legend Bar */}
+      <div className="absolute bottom-6 left-6 z-20 hidden md:flex flex-col gap-2 p-3 rounded-2xl bg-[#14161b]/95 border border-white/10 backdrop-blur-xl shadow-2xl text-xs max-w-md">
+        <div className="flex items-center justify-between text-slate-300">
+          <span className="font-bold flex items-center gap-1.5">
+            <Flame className="w-3.5 h-3.5 text-red-500" /> Continuous Thermal Density Scale:
+          </span>
+          <span className="text-[10px] text-slate-400 font-mono">0.15 → 1.00 Intensity</span>
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#d4f933] shadow-[0_0_6px_#d4f933]"></span>
-          <span>Moderate (Lime)</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff8800] shadow-[0_0_6px_#ff8800]"></span>
-          <span>Severe (Amber)</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff0055] shadow-[0_0_6px_#ff0055]"></span>
-          <span className="text-[#ff0055] font-bold">Critical (Hot Coral)</span>
+
+        {/* Smooth Gradient Visual Bar */}
+        <div className="w-full h-3 rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 via-emerald-400 via-yellow-400 via-orange-500 to-red-600 shadow-inner"></div>
+
+        <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
+          <span className="text-blue-400">Low (Scattered)</span>
+          <span className="text-emerald-400">Moderate</span>
+          <span className="text-yellow-400">Dense</span>
+          <span className="text-red-400 font-bold">Severe Cluster (Red Core)</span>
         </div>
       </div>
 
       {/* Floating HUD Telemetry Card on Left */}
       {hudCardOpen && selectedPoint && (
-        <div className="absolute top-5 left-5 z-20 w-[360px] sm:w-[410px] max-w-[calc(100%-2.5rem)] rounded-3xl bg-[#14161b]/95 border border-white/10 shadow-[0_16px_48px_rgba(0,0,0,0.8)] backdrop-blur-2xl p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute top-20 left-5 z-20 w-[350px] sm:w-[400px] max-w-[calc(100%-2.5rem)] rounded-3xl bg-[#14161b]/95 border border-white/10 shadow-[0_16px_48px_rgba(0,0,0,0.85)] backdrop-blur-2xl p-4 sm:p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Card Header */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#1e2129] border border-white/10 flex items-center justify-center text-white shrink-0 shadow-inner">
-                <HardHat className="w-6 h-6 text-[#d4f933]" />
+              <div className="w-11 h-11 rounded-2xl bg-[#1e2129] border border-white/10 flex items-center justify-center text-white shrink-0 shadow-inner">
+                <HardHat className="w-5 h-5 text-[#d4f933]" />
               </div>
 
               <div>
@@ -487,12 +562,18 @@ export const DamageMap: React.FC = () => {
                   <span className="font-mono text-sm font-bold text-white tracking-tight">
                     #{selectedPoint.inspection_id}
                   </span>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#d4f933] text-black">
-                    Live Telemetry
+                  <span
+                    className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full"
+                    style={{
+                      backgroundColor: (VIBRANT_SEV_COLORS[selectedPoint.overall_severity] || VIBRANT_SEV_COLORS.MINOR).core,
+                      color: '#ffffff'
+                    }}
+                  >
+                    {selectedPoint.overall_severity}
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Assigned Crew: <b>TRUCK-04 (Apex Infra)</b> · YOLOv8
+                  AI YOLOv8 · {selectedPoint.potholes} Potholes · {selectedPoint.cracks} Cracks
                 </div>
               </div>
             </div>
@@ -505,39 +586,30 @@ export const DamageMap: React.FC = () => {
             </button>
           </div>
 
-          {/* Route & Progress Bar */}
-          <div className="p-3.5 rounded-2xl bg-[#191b22] border border-white/[0.04] space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-200 truncate max-w-[220px]">
-                {selectedPoint.location_name}
-              </span>
-              <span className="font-mono font-bold text-slate-300">
-                4.2 km <span className="text-[#d4f933]">72%</span>
-              </span>
+          {/* Genuine Reverse-Geocoded Road Location */}
+          <div className="p-3 rounded-2xl bg-[#191b22] border border-white/[0.04] space-y-1.5">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Identified Road Section
             </div>
-
-            <div className="w-full bg-[#101216] h-1.5 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-amber-400 to-[#d4f933] rounded-full w-[72%] shadow-[0_0_8px_#d4f933]"></div>
+            <div className="text-xs font-semibold text-white leading-snug">
+              {selectedPoint.location_name}
             </div>
-
-            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-slate-400" /> Est. Arrival: <b>~45m</b>
-              </span>
-              <span>1.8 km distance remaining</span>
+            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+              <span>GPS: <b className="font-mono text-slate-200">{selectedPoint.latitude.toFixed(5)}, {selectedPoint.longitude.toFixed(5)}</b></span>
+              <span className="text-[#d4f933] font-semibold">{selectedPoint.location_source}</span>
             </div>
           </div>
 
-          {/* Dual HUD Dials: Speedometer / Severity Gauge + Liquid Risk / Fuel Level */}
+          {/* Dual HUD Dials: Severity Speedometer + Defect Risk Gauge */}
           <div className="grid grid-cols-2 gap-3">
             {/* Speedometer / Severity Gauge */}
-            <div className="p-3.5 rounded-2xl bg-[#191b22] border border-white/[0.04] flex flex-col items-center relative overflow-hidden">
-              <div className="w-full flex items-center justify-between text-[11px] text-slate-400 mb-1">
+            <div className="p-3 rounded-2xl bg-[#191b22] border border-white/[0.04] flex flex-col items-center relative overflow-hidden">
+              <div className="w-full flex items-center justify-between text-[10px] text-slate-400 mb-0.5">
                 <span>Severity Gauge</span>
-                <span className="text-[10px] font-bold text-rose-500 uppercase">{selectedPoint.overall_severity}</span>
+                <span className="font-bold text-rose-500 uppercase">{selectedPoint.overall_severity}</span>
               </div>
 
-              <div className="relative w-32 h-24 flex items-center justify-center">
+              <div className="relative w-28 h-20 flex items-center justify-center">
                 <svg viewBox="0 0 120 90" className="w-full h-full overflow-visible">
                   <path
                     d="M 20 80 A 45 45 0 1 1 100 80"
@@ -557,9 +629,9 @@ export const DamageMap: React.FC = () => {
                   />
                   <defs>
                     <linearGradient id="speedoGradient" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#00f0ff" />
-                      <stop offset="50%" stopColor="#d4f933" />
-                      <stop offset="100%" stopColor="#ff0055" />
+                      <stop offset="0%" stopColor="#2563eb" />
+                      <stop offset="50%" stopColor="#eab308" />
+                      <stop offset="100%" stopColor="#dc2626" />
                     </linearGradient>
                   </defs>
                   <g transform={`rotate(${needleAngle} 60 75)`} className="transition-transform duration-500 ease-out">
@@ -568,57 +640,40 @@ export const DamageMap: React.FC = () => {
                   </g>
                 </svg>
 
-                <div className="absolute bottom-1 text-center">
-                  <div className="text-base font-extrabold text-white leading-none">
+                <div className="absolute bottom-0 text-center">
+                  <div className="text-sm font-extrabold text-white leading-none">
                     {activeSevScore}%
                   </div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">Defect Index</div>
+                  <div className="text-[8px] text-slate-400 mt-0.5">Defect Index</div>
                 </div>
               </div>
             </div>
 
-            {/* Liquid Level / Risk Gauge */}
-            <div className="p-3.5 rounded-2xl bg-[#191b22] border border-white/[0.04] flex flex-col items-center relative overflow-hidden">
-              <div className="w-full flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                <span>Accident Risk</span>
-                <span className="text-[10px] font-bold text-amber-400 uppercase">74%</span>
-              </div>
-
-              <div className="relative w-20 h-20 rounded-full bg-[#101216] border border-white/10 flex items-center justify-center overflow-hidden my-1 shadow-inner">
-                <div
-                  className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-amber-600 to-amber-400 transition-all duration-500"
-                  style={{ height: '74%' }}
-                >
-                  <div className="w-full h-2 bg-amber-300 opacity-60 rounded-full blur-[1px]"></div>
+            {/* Risk Category / Repair Status */}
+            <div className="p-3 rounded-2xl bg-[#191b22] border border-white/[0.04] flex flex-col justify-between">
+              <div className="text-[10px] text-slate-400">Risk Assessment</div>
+              <div>
+                <div className="text-base font-extrabold text-amber-400">
+                  {selectedPoint.risk_category}
                 </div>
-                <div className="relative z-10 text-center text-white">
-                  <div className="text-sm font-extrabold leading-none drop-shadow-md">
-                    High
-                  </div>
-                  <div className="text-[9px] text-black font-semibold mt-0.5 px-1 rounded bg-amber-200">
-                    74% Index
-                  </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Priority: <b className="text-white">{selectedPoint.overall_severity === 'CRITICAL' ? 'Immediate' : 'Standard'}</b>
                 </div>
               </div>
 
-              <div className="text-[10px] text-slate-400 mt-1">Hazard Factor</div>
+              <div className="pt-1.5 border-t border-white/10 text-[10px] flex items-center justify-between">
+                <span className="text-slate-400">Workflow:</span>
+                <span className="font-bold text-[#d4f933]">{selectedPoint.repair_status || 'REPORTED'}</span>
+              </div>
             </div>
           </div>
 
-          {/* Traffic Alert Banner */}
-          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2.5 text-xs text-amber-300">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <div className="leading-snug">
-              <b>Traffic Alert:</b> Active lane divergence required for cold-mix compaction crews.
-            </div>
-          </div>
-
-          {/* Action Link */}
+          {/* Action Link to 7-Stage Tracker */}
           <Link
             to={`/track?id=${selectedPoint.inspection_id}`}
             className="w-full py-2.5 rounded-2xl bg-white hover:bg-slate-200 text-black text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg"
           >
-            <span>Open 7-Stage Progress Tracker</span>
+            <span>Track Progress for #{selectedPoint.inspection_id}</span>
             <ArrowUpRight className="w-4 h-4" />
           </Link>
         </div>

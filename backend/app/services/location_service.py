@@ -49,9 +49,11 @@ class LocationService:
     @staticmethod
     def get_heatmap_points() -> List[Dict[str, Any]]:
         """
-        Returns weighted heatmap intensity points for city damage density visualization.
-        Intensity is scaled from 0.1 to 1.0 based on pothole volume, severity, and repair status.
+        Returns weighted heatmap intensity points for continuous GIS damage density visualization.
+        Intensity is scaled from 0.2 to 1.0 based on pothole volume, severity, and repair status.
+        For multi-pothole inspections, emits cluster points to render true density gradients.
         """
+        import math
         points = LocationService.get_damage_points()
         heatmap = []
         severity_weights = {
@@ -75,15 +77,38 @@ class LocationService:
             if rep_status in ["REPAIRED", "CLOSED"]:
                 intensity = max(0.15, intensity * 0.3)
 
+            lat = p["latitude"]
+            lon = p["longitude"]
+
+            # 1. Primary inspection epicenter
             heatmap.append({
-                "lat": p["latitude"],
-                "lng": p["longitude"],
+                "lat": lat,
+                "lng": lon,
                 "intensity": round(intensity, 2),
                 "count": max(1, pothole_count),
                 "severity": sev,
                 "inspection_id": p["inspection_id"],
                 "repair_status": rep_status
             })
+
+            # 2. If multiple potholes detected, emit radial cluster points to form organic density contours
+            if pothole_count > 1:
+                emitters_count = min(pothole_count - 1, 10)
+                for idx in range(emitters_count):
+                    angle = (idx * (2 * math.pi / emitters_count)) + (lat * 1000 % 1.0)
+                    dist_deg = 0.00018 + (idx * 0.000035) # ~20m - 50m offset
+                    dlat = math.sin(angle) * dist_deg
+                    dlon = math.cos(angle) * dist_deg
+                    emitter_intensity = max(0.3, min(1.0, intensity * (0.80 + 0.15 * (idx % 2))))
+                    heatmap.append({
+                        "lat": round(lat + dlat, 6),
+                        "lng": round(lon + dlon, 6),
+                        "intensity": round(emitter_intensity, 2),
+                        "count": 1,
+                        "severity": sev,
+                        "inspection_id": f"{p['inspection_id']}_c{idx+1}",
+                        "repair_status": rep_status
+                    })
 
         return heatmap
 

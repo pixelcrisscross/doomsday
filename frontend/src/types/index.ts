@@ -282,4 +282,5 @@ export interface DamageMapPoint {
   verification_status: VerificationStatus;
   duplicate_status: DuplicateStatus;
   duplicate_of?: string;
+  repair_status?: string;
 }
