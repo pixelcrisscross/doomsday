@@ -140,17 +140,17 @@ class DamageMapPoint(BaseModel):
     inspection_id: str
     latitude: float
     longitude: float
-    location_name: str
-    location_source: str
-    overall_severity: str
-    severity_score: float
-    risk_category: str
-    potholes: int
-    cracks: int
-    media_type: str
-    date: str
-    verification_status: str
-    duplicate_status: str
+    location_name: Optional[str] = "Road Section"
+    location_source: Optional[str] = "UNAVAILABLE"
+    overall_severity: Optional[str] = "MODERATE"
+    severity_score: Optional[float] = 50.0
+    risk_category: Optional[str] = "Medium"
+    potholes: Optional[int] = 0
+    cracks: Optional[int] = 0
+    media_type: Optional[str] = "photo"
+    date: Optional[str] = ""
+    verification_status: Optional[str] = "AI_PENDING"
+    duplicate_status: Optional[str] = "NEW_REPORT"
     duplicate_of: Optional[str] = None
     repair_status: Optional[str] = "REPORTED"
 
@@ -256,11 +256,11 @@ class InspectionStatusCheckResponse(BaseModel):
 class HeatmapPoint(BaseModel):
     lat: float
     lng: float
-    intensity: float  # 0.1 to 1.0
-    count: int = 1
-    severity: str
-    inspection_id: str
-    repair_status: str
+    intensity: Optional[float] = 0.5  # 0.1 to 1.0
+    count: Optional[int] = 1
+    severity: Optional[str] = "MODERATE"
+    inspection_id: Optional[str] = ""
+    repair_status: Optional[str] = "REPORTED"
 
 class CityPotholeSummary(BaseModel):
     city_name: str = "Bengaluru Urban"

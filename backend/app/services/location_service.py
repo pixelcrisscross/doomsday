@@ -36,10 +36,10 @@ class LocationService:
                         "cracks": r.get("final_cracks", 0),
                         "media_type": r.get("media_type", "photo"),
                         "date": r.get("date", ""),
-                        "verification_status": r.get("verification", {}).get("status", "AI_PENDING"),
-                        "duplicate_status": r.get("duplicate_status", "NEW_REPORT"),
+                        "verification_status": (r.get("verification") if isinstance(r.get("verification"), dict) else {}).get("status", "AI_PENDING") or "AI_PENDING",
+                        "duplicate_status": r.get("duplicate_status", "NEW_REPORT") or "NEW_REPORT",
                         "duplicate_of": r.get("duplicate_of"),
-                        "repair_status": r.get("repair_status", "REPORTED")
+                        "repair_status": r.get("repair_status", "REPORTED") or "REPORTED"
                     })
                 except (ValueError, TypeError):
                     continue

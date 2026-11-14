@@ -48,14 +48,7 @@ class MongoManager:
             self.db = None
 
     def is_connected(self) -> bool:
-        if not self._is_connected or self.client is None:
-            return False
-        try:
-            self.client.admin.command("ping")
-            return True
-        except Exception:
-            self._is_connected = False
-            return False
+        return bool(self._is_connected and self.client is not None and self.db is not None)
 
     def get_collection(self, name: str) -> Optional[Collection]:
         if self.db is not None and self._is_connected:
