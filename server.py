@@ -56,7 +56,7 @@ def initialize_database():
         print("⚠️ [MongoDB Atlas] Could not connect to Atlas. Operating in local JSON fallback mode.")
 
     print("-" * 60)
-    print("🚀 [FastAPI REST API] Starting on http://127.0.0.1:8000")
+    print("🚀 [FastAPI REST API] Starting on http://0.0.0.0:8000 (Local: http://127.0.0.1:8000)")
     print("📚 [Interactive Swagger Docs] http://127.0.0.1:8000/docs")
     print("=" * 60)
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     initialize_database()
     uvicorn.run(
         "backend.app.main:app",
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=8000,
         reload=True
     )
