@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 outputs/
 app.py.bak
+.tools/
+node_modules/
+dist/
+.vite/
+scratch/

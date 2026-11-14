@@ -1,0 +1,26 @@
+# RoadSentinel AI — FastAPI Backend Dependencies
+# Install via uv:
+#   uv pip install -r backend/requirements.txt
+#
+# Free of pandas / pyarrow to adhere to Windows Application Control policies.
+
+# --- Web Framework & API ---
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+python-multipart>=0.0.9
+httpx>=0.27.0
+
+# --- AI & Computer Vision ---
+ultralytics>=8.3.0
+huggingface_hub
+Pillow>=10.0.0
+opencv-python-headless>=4.9.0
+imageio-ffmpeg>=0.4.9
+
+# --- Geolocation & GIS ---
+geopy>=2.4.0
+
+# --- Database & Persistence ---
+pymongo>=4.6.0
+dnspython>=2.5.0

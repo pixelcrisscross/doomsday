@@ -1,0 +1,15 @@
+# RoadSentinel AI — Streamlit Application Dependencies
+# Install via uv:
+#   uv pip install -r streamlit_app/requirements.txt
+#
+# NOTE: pandas and pyarrow are explicitly omitted to prevent
+# Windows Application Control DLL load policy blocks.
+
+streamlit>=1.38.0
+ultralytics>=8.3.0
+huggingface_hub
+Pillow>=10.0.0
+opencv-python-headless>=4.9.0
+geopy>=2.4.0
+imageio-ffmpeg>=0.4.9
+pydeck>=0.8.0

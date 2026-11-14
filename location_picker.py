@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import streamlit.components.v1 as components
 
-_COMPONENT_PATH = Path(__file__).parent / "components" / "location_picker"
+_COMPONENT_PATH = Path(__file__).parent / "streamlit_app" / "components" / "location_picker"
+if not _COMPONENT_PATH.exists():
+    _COMPONENT_PATH = Path(__file__).parent / "components" / "location_picker"
 _location_picker_func = components.declare_component(
     "location_picker",
     path=str(_COMPONENT_PATH.resolve())

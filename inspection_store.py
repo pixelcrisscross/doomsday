@@ -72,16 +72,24 @@ def load_all_inspections(store_path: Path = DEFAULT_STORE_FILE) -> List[Dict[str
 
 def _sanitize_for_json(obj: Any) -> Any:
     """Recursively converts objects to JSON-serializable primitives and excludes in-memory image buffers."""
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    if obj is None or isinstance(obj, (bool, float, str)):
         if hasattr(obj, "item"):
             return obj.item()
+        return obj
+    if isinstance(obj, int):
+        # Prevent BSON OverflowError for unsigned 64-bit integers (e.g. dhash values)
+        if obj > 9223372036854775807 or obj < -9223372036854775808:
+            return str(obj)
         return obj
     if isinstance(obj, dict):
         clean_dict = {}
         for k, v in obj.items():
             if k in ("image", "crop_image") or "PIL." in str(type(v)):
                 continue
-            clean_dict[str(k)] = _sanitize_for_json(v)
+            if k == "dhash" and isinstance(v, int):
+                clean_dict[str(k)] = str(v)
+            else:
+                clean_dict[str(k)] = _sanitize_for_json(v)
         return clean_dict
     if isinstance(obj, (list, tuple, set)):
         return [_sanitize_for_json(x) for x in obj]
@@ -123,6 +131,31 @@ def _atomic_write(records: List[Dict[str, Any]], store_path: Path = DEFAULT_STOR
             except Exception:
                 pass
         return False
+
+def _sync_mongo_save(record: Dict[str, Any]):
+    """Syncs an inspection record directly to MongoDB Atlas collection."""
+    try:
+        from backend.app.core.database import mongo_manager
+        col = mongo_manager.get_collection("inspections")
+        if col is not None:
+            clean_rec = _sanitize_for_json(record)
+            col.update_one(
+                {"inspection_id": clean_rec["inspection_id"]},
+                {"$set": clean_rec},
+                upsert=True
+            )
+    except Exception:
+        pass
+
+def _sync_mongo_delete(inspection_id: str):
+    """Deletes an inspection record from MongoDB Atlas collection."""
+    try:
+        from backend.app.core.database import mongo_manager
+        col = mongo_manager.get_collection("inspections")
+        if col is not None:
+            col.delete_one({"inspection_id": inspection_id})
+    except Exception:
+        pass
 
 
 def save_inspection(
@@ -173,6 +206,7 @@ def save_inspection(
 
         records.insert(0, record)  # Newest first
         _atomic_write(records, store_path)
+        _sync_mongo_save(record)
         return record["inspection_id"]
 
 
@@ -245,7 +279,12 @@ def update_inspection(
                 break
 
         if updated:
-            return _atomic_write(records, store_path)
+            success = _atomic_write(records, store_path)
+            for r in records:
+                if r.get("inspection_id") == inspection_id:
+                    _sync_mongo_save(r)
+                    break
+            return success
         return False
 
 
@@ -268,7 +307,9 @@ def delete_inspection(
         records = [r for r in records if r.get("inspection_id") != inspection_id]
 
         if len(records) < initial_len:
-            return _atomic_write(records, store_path)
+            success = _atomic_write(records, store_path)
+            _sync_mongo_delete(inspection_id)
+            return success
         return False
 
 

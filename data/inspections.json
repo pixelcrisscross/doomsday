@@ -1,0 +1,1859 @@
+[
+  {
+    "inspection_id": "RS-20261114-896A84",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "10505_12_7_2023_17_47_12_1_IMG_4805.jpg",
+    "annotated_filename": "annotated_RS-20261114-896A84.jpg",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 05:10",
+    "timestamp": "2026-11-14T05:10:39.760578",
+    "final_potholes": 17,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 17,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 2 (Pothole)",
+    "overall_severity": "CRITICAL",
+    "severity_breakdown": {
+      "MINOR": 2,
+      "MODERATE": 6,
+      "SEVERE": 2,
+      "CRITICAL": 7
+    },
+    "average_severity_score": 69.5,
+    "risk_category": "Critical",
+    "detections": [
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 96.4,
+        "box_width": 218,
+        "box_height": 135,
+        "box_area": 29430,
+        "relative_area_pct": 3.633,
+        "max_span_pct": 18.17,
+        "aspect_ratio": 1.61,
+        "explanation": "Large surface footprint (3.63% of frame, span 18.2%)",
+        "confidence": 0.8201814293861389,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          870,
+          360,
+          1088,
+          495
+        ],
+        "risk_score": 48.3,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_0.jpg",
+        "dhash": 1191418024224647377
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 95.7,
+        "box_width": 191,
+        "box_height": 131,
+        "box_area": 25021,
+        "relative_area_pct": 3.089,
+        "max_span_pct": 15.92,
+        "aspect_ratio": 1.46,
+        "explanation": "Large surface footprint (3.09% of frame, span 15.9%)",
+        "confidence": 0.8045133352279663,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          589,
+          438,
+          780,
+          569
+        ],
+        "risk_score": 40.3,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_1.jpg",
+        "dhash": 3414539686156816804
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 97.4,
+        "box_width": 337,
+        "box_height": 96,
+        "box_area": 32352,
+        "relative_area_pct": 3.994,
+        "max_span_pct": 28.08,
+        "aspect_ratio": 3.51,
+        "explanation": "Large surface footprint (3.99% of frame, span 28.1%)",
+        "confidence": 0.5218667984008789,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          0,
+          285,
+          337,
+          381
+        ],
+        "risk_score": 33.8,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_2.jpg",
+        "dhash": 3210831118137643375
+      },
+      {
+        "severity_category": "SEVERE",
+        "severity_score": 77.4,
+        "box_width": 190,
+        "box_height": 63,
+        "box_area": 11970,
+        "relative_area_pct": 1.478,
+        "max_span_pct": 15.83,
+        "aspect_ratio": 3.02,
+        "explanation": "Substantial surface cavity (1.48% of frame, span 15.8%)",
+        "confidence": 0.4865943491458893,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          716,
+          240,
+          906,
+          303
+        ],
+        "risk_score": 11.6,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_3.jpg",
+        "dhash": 4105295703221331818
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.9,
+        "box_width": 84,
+        "box_height": 43,
+        "box_area": 3612,
+        "relative_area_pct": 0.446,
+        "max_span_pct": 7.0,
+        "aspect_ratio": 1.95,
+        "explanation": "Noticeable road pothole (0.45% of frame, span 7.0%)",
+        "confidence": 0.4462087154388428,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          671,
+          372,
+          755,
+          415
+        ],
+        "risk_score": 3.2,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_4.jpg",
+        "dhash": 1958747919778083115
+      },
+      {
+        "severity_category": "SEVERE",
+        "severity_score": 77.7,
+        "box_width": 174,
+        "box_height": 90,
+        "box_area": 15660,
+        "relative_area_pct": 1.933,
+        "max_span_pct": 14.5,
+        "aspect_ratio": 1.93,
+        "explanation": "Substantial surface cavity (1.93% of frame, span 14.5%)",
+        "confidence": 0.41855135560035706,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          186,
+          425,
+          360,
+          515
+        ],
+        "risk_score": 13.1,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_5.jpg",
+        "dhash": 16391054210025687686
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.8,
+        "box_width": 76,
+        "box_height": 37,
+        "box_area": 2812,
+        "relative_area_pct": 0.347,
+        "max_span_pct": 6.33,
+        "aspect_ratio": 2.05,
+        "explanation": "Noticeable road pothole (0.35% of frame, span 6.3%)",
+        "confidence": 0.4111543893814087,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          763,
+          312,
+          839,
+          349
+        ],
+        "risk_score": 2.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_6.jpg",
+        "dhash": 7846723422246489807
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.7,
+        "box_width": 130,
+        "box_height": 62,
+        "box_area": 8060,
+        "relative_area_pct": 0.995,
+        "max_span_pct": 10.83,
+        "aspect_ratio": 2.1,
+        "explanation": "Noticeable road pothole (0.99% of frame, span 10.8%)",
+        "confidence": 0.3698791265487671,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          321,
+          366,
+          451,
+          428
+        ],
+        "risk_score": 6.0,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_7.jpg",
+        "dhash": 4820617029439027736
+      },
+      {
+        "severity_category": "MINOR",
+        "severity_score": 20.7,
+        "box_width": 70,
+        "box_height": 34,
+        "box_area": 2380,
+        "relative_area_pct": 0.294,
+        "max_span_pct": 5.83,
+        "aspect_ratio": 2.06,
+        "explanation": "Minor visual depression (0.29% of frame, span 5.8%)",
+        "confidence": 0.22739310562610626,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          1007,
+          250,
+          1077,
+          284
+        ],
+        "risk_score": 1.1,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_8.jpg",
+        "dhash": 73516832860670336
+      },
+      {
+        "severity_category": "MINOR",
+        "severity_score": 20.5,
+        "box_width": 54,
+        "box_height": 17,
+        "box_area": 918,
+        "relative_area_pct": 0.113,
+        "max_span_pct": 4.5,
+        "aspect_ratio": 3.18,
+        "explanation": "Minor visual depression (0.11% of frame, span 4.5%)",
+        "confidence": 0.17781735956668854,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          1009,
+          252,
+          1063,
+          269
+        ],
+        "risk_score": 0.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_9.jpg",
+        "dhash": 4765151553900545220
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.6,
+        "box_width": 130,
+        "box_height": 58,
+        "box_area": 7540,
+        "relative_area_pct": 0.931,
+        "max_span_pct": 10.83,
+        "aspect_ratio": 2.24,
+        "explanation": "Noticeable road pothole (0.93% of frame, span 10.8%)",
+        "confidence": 0.17222417891025543,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          663,
+          362,
+          793,
+          420
+        ],
+        "risk_score": 2.6,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_10.jpg",
+        "dhash": 4349695456719234389
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.5,
+        "box_width": 125,
+        "box_height": 54,
+        "box_area": 6750,
+        "relative_area_pct": 0.833,
+        "max_span_pct": 10.42,
+        "aspect_ratio": 2.31,
+        "explanation": "Noticeable road pothole (0.83% of frame, span 10.4%)",
+        "confidence": 0.09677137434482574,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          462,
+          230,
+          587,
+          284
+        ],
+        "risk_score": 1.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_11.jpg",
+        "dhash": 10349023402121238602
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 100.0,
+        "box_width": 484,
+        "box_height": 390,
+        "box_area": 188760,
+        "relative_area_pct": 23.304,
+        "max_span_pct": 40.33,
+        "aspect_ratio": 1.24,
+        "explanation": "Large surface footprint (23.30% of frame, span 40.3%)",
+        "confidence": 0.08271752297878265,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          687,
+          131,
+          1171,
+          521
+        ],
+        "risk_score": 8.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_12.jpg",
+        "dhash": 9625424134822957464
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 100.0,
+        "box_width": 285,
+        "box_height": 348,
+        "box_area": 99180,
+        "relative_area_pct": 12.244,
+        "max_span_pct": 29.0,
+        "aspect_ratio": 0.82,
+        "explanation": "Large surface footprint (12.24% of frame, span 29.0%)",
+        "confidence": 0.07848852872848511,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          704,
+          61,
+          989,
+          409
+        ],
+        "risk_score": 7.8,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_13.jpg",
+        "dhash": 8545942280847804454
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.1,
+        "box_width": 103,
+        "box_height": 45,
+        "box_area": 4635,
+        "relative_area_pct": 0.572,
+        "max_span_pct": 8.58,
+        "aspect_ratio": 2.29,
+        "explanation": "Noticeable road pothole (0.57% of frame, span 8.6%)",
+        "confidence": 0.06396020948886871,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          1011,
+          249,
+          1114,
+          294
+        ],
+        "risk_score": 0.6,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_14.jpg",
+        "dhash": 288327184983269568
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 100.0,
+        "box_width": 388,
+        "box_height": 227,
+        "box_area": 88076,
+        "relative_area_pct": 10.874,
+        "max_span_pct": 32.33,
+        "aspect_ratio": 1.71,
+        "explanation": "Large surface footprint (10.87% of frame, span 32.3%)",
+        "confidence": 0.05294758081436157,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          786,
+          70,
+          1174,
+          297
+        ],
+        "risk_score": 5.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_15.jpg",
+        "dhash": 15080632564723056928
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 100.0,
+        "box_width": 1152,
+        "box_height": 531,
+        "box_area": 611712,
+        "relative_area_pct": 75.52,
+        "max_span_pct": 96.0,
+        "aspect_ratio": 2.17,
+        "explanation": "Large surface footprint (75.52% of frame, span 96.0%)",
+        "confidence": 0.05041296035051346,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          8,
+          80,
+          1160,
+          611
+        ],
+        "risk_score": 5.0,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_16.jpg",
+        "dhash": 13567503979324775046
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          870,
+          360,
+          1088,
+          495
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_0.jpg",
+        "dhash": 1191418024224647377,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 1,
+        "box": [
+          589,
+          438,
+          780,
+          569
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_1.jpg",
+        "dhash": 3414539686156816804,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 2,
+        "box": [
+          0,
+          285,
+          337,
+          381
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_2.jpg",
+        "dhash": 3210831118137643375,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 3,
+        "box": [
+          716,
+          240,
+          906,
+          303
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_3.jpg",
+        "dhash": 4105295703221331818,
+        "severity": "SEVERE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 4,
+        "box": [
+          671,
+          372,
+          755,
+          415
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_4.jpg",
+        "dhash": 1958747919778083115,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 5,
+        "box": [
+          186,
+          425,
+          360,
+          515
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_5.jpg",
+        "dhash": 16391054210025687686,
+        "severity": "SEVERE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 6,
+        "box": [
+          763,
+          312,
+          839,
+          349
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_6.jpg",
+        "dhash": 7846723422246489807,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 7,
+        "box": [
+          321,
+          366,
+          451,
+          428
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_7.jpg",
+        "dhash": 4820617029439027736,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 8,
+        "box": [
+          1007,
+          250,
+          1077,
+          284
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_8.jpg",
+        "dhash": 73516832860670336,
+        "severity": "MINOR",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 9,
+        "box": [
+          1009,
+          252,
+          1063,
+          269
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_9.jpg",
+        "dhash": 4765151553900545220,
+        "severity": "MINOR",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 10,
+        "box": [
+          663,
+          362,
+          793,
+          420
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_10.jpg",
+        "dhash": 4349695456719234389,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 11,
+        "box": [
+          462,
+          230,
+          587,
+          284
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_11.jpg",
+        "dhash": 10349023402121238602,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 12,
+        "box": [
+          687,
+          131,
+          1171,
+          521
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_12.jpg",
+        "dhash": 9625424134822957464,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 13,
+        "box": [
+          704,
+          61,
+          989,
+          409
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_13.jpg",
+        "dhash": 8545942280847804454,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 14,
+        "box": [
+          1011,
+          249,
+          1114,
+          294
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_14.jpg",
+        "dhash": 288327184983269568,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 15,
+        "box": [
+          786,
+          70,
+          1174,
+          297
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_15.jpg",
+        "dhash": 15080632564723056928,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 16,
+        "box": [
+          8,
+          80,
+          1160,
+          611
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-896A84_defect_16.jpg",
+        "dhash": 13567503979324775046,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 17,
+      "crack_count": 0,
+      "overall_severity": "CRITICAL",
+      "average_severity_score": 69.5,
+      "risk_category": "Critical"
+    },
+    "duplicate_status": "NEEDS_MANUAL_REVIEW",
+    "duplicate_of": "RS-20261114-36B4F2",
+    "duplicate_candidates": [
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_0.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_1.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_2.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_3.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_5.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 1.0,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 100% (dHash: 100%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_7.jpg"
+      },
+      {
+        "original_report_id": "RS-20261114-36B4F2",
+        "distance_m": null,
+        "similarity_score": 0.987,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "GPS coordinates unavailable for one or both reports.",
+          "Visual Match: 99% (dHash: 97%, ORB: 100%, Hist: 100%)",
+          "Strong visual resemblance detected, but location could not be verified via GPS."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_10.jpg"
+      }
+    ],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 17,
+        "cracks": 0,
+        "overall_severity": "CRITICAL"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-36B4F2",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "10505_12_7_2023_17_47_12_1_IMG_4805.jpg",
+    "annotated_filename": "annotated_RS-20261114-36B4F2.jpg",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 05:10",
+    "timestamp": "2026-11-14T05:10:15.726989",
+    "final_potholes": 11,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 11,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 2 (Pothole)",
+    "overall_severity": "CRITICAL",
+    "severity_breakdown": {
+      "MINOR": 2,
+      "MODERATE": 4,
+      "SEVERE": 2,
+      "CRITICAL": 3
+    },
+    "average_severity_score": 62.1,
+    "risk_category": "Critical",
+    "detections": [
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 96.4,
+        "box_width": 218,
+        "box_height": 135,
+        "box_area": 29430,
+        "relative_area_pct": 3.633,
+        "max_span_pct": 18.17,
+        "aspect_ratio": 1.61,
+        "explanation": "Large surface footprint (3.63% of frame, span 18.2%)",
+        "confidence": 0.8201814293861389,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          870,
+          360,
+          1088,
+          495
+        ],
+        "risk_score": 48.3,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_0.jpg",
+        "dhash": 1191418024224647377
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 95.7,
+        "box_width": 191,
+        "box_height": 131,
+        "box_area": 25021,
+        "relative_area_pct": 3.089,
+        "max_span_pct": 15.92,
+        "aspect_ratio": 1.46,
+        "explanation": "Large surface footprint (3.09% of frame, span 15.9%)",
+        "confidence": 0.8045133352279663,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          589,
+          438,
+          780,
+          569
+        ],
+        "risk_score": 40.3,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_1.jpg",
+        "dhash": 3414539686156816804
+      },
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 97.4,
+        "box_width": 337,
+        "box_height": 96,
+        "box_area": 32352,
+        "relative_area_pct": 3.994,
+        "max_span_pct": 28.08,
+        "aspect_ratio": 3.51,
+        "explanation": "Large surface footprint (3.99% of frame, span 28.1%)",
+        "confidence": 0.5218667984008789,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          0,
+          285,
+          337,
+          381
+        ],
+        "risk_score": 33.8,
+        "risk_category": "Medium",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_2.jpg",
+        "dhash": 3210831118137643375
+      },
+      {
+        "severity_category": "SEVERE",
+        "severity_score": 77.4,
+        "box_width": 190,
+        "box_height": 63,
+        "box_area": 11970,
+        "relative_area_pct": 1.478,
+        "max_span_pct": 15.83,
+        "aspect_ratio": 3.02,
+        "explanation": "Substantial surface cavity (1.48% of frame, span 15.8%)",
+        "confidence": 0.4865943491458893,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          716,
+          240,
+          906,
+          303
+        ],
+        "risk_score": 11.6,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_3.jpg",
+        "dhash": 4105295703221331818
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.9,
+        "box_width": 84,
+        "box_height": 43,
+        "box_area": 3612,
+        "relative_area_pct": 0.446,
+        "max_span_pct": 7.0,
+        "aspect_ratio": 1.95,
+        "explanation": "Noticeable road pothole (0.45% of frame, span 7.0%)",
+        "confidence": 0.4462087154388428,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          671,
+          372,
+          755,
+          415
+        ],
+        "risk_score": 3.2,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_4.jpg",
+        "dhash": 1958747919778083115
+      },
+      {
+        "severity_category": "SEVERE",
+        "severity_score": 77.7,
+        "box_width": 174,
+        "box_height": 90,
+        "box_area": 15660,
+        "relative_area_pct": 1.933,
+        "max_span_pct": 14.5,
+        "aspect_ratio": 1.93,
+        "explanation": "Substantial surface cavity (1.93% of frame, span 14.5%)",
+        "confidence": 0.41855135560035706,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          186,
+          425,
+          360,
+          515
+        ],
+        "risk_score": 13.1,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_5.jpg",
+        "dhash": 16391054210025687686
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.8,
+        "box_width": 76,
+        "box_height": 37,
+        "box_area": 2812,
+        "relative_area_pct": 0.347,
+        "max_span_pct": 6.33,
+        "aspect_ratio": 2.05,
+        "explanation": "Noticeable road pothole (0.35% of frame, span 6.3%)",
+        "confidence": 0.4111543893814087,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          763,
+          312,
+          839,
+          349
+        ],
+        "risk_score": 2.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_6.jpg",
+        "dhash": 7846723422246489807
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.7,
+        "box_width": 130,
+        "box_height": 62,
+        "box_area": 8060,
+        "relative_area_pct": 0.995,
+        "max_span_pct": 10.83,
+        "aspect_ratio": 2.1,
+        "explanation": "Noticeable road pothole (0.99% of frame, span 10.8%)",
+        "confidence": 0.3698791265487671,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          321,
+          366,
+          451,
+          428
+        ],
+        "risk_score": 6.0,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_7.jpg",
+        "dhash": 4820617029439027736
+      },
+      {
+        "severity_category": "MINOR",
+        "severity_score": 20.7,
+        "box_width": 70,
+        "box_height": 34,
+        "box_area": 2380,
+        "relative_area_pct": 0.294,
+        "max_span_pct": 5.83,
+        "aspect_ratio": 2.06,
+        "explanation": "Minor visual depression (0.29% of frame, span 5.8%)",
+        "confidence": 0.22739310562610626,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          1007,
+          250,
+          1077,
+          284
+        ],
+        "risk_score": 1.1,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_8.jpg",
+        "dhash": 73516832860670336
+      },
+      {
+        "severity_category": "MINOR",
+        "severity_score": 20.5,
+        "box_width": 54,
+        "box_height": 17,
+        "box_area": 918,
+        "relative_area_pct": 0.113,
+        "max_span_pct": 4.5,
+        "aspect_ratio": 3.18,
+        "explanation": "Minor visual depression (0.11% of frame, span 4.5%)",
+        "confidence": 0.17781735956668854,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          1009,
+          252,
+          1063,
+          269
+        ],
+        "risk_score": 0.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_9.jpg",
+        "dhash": 4765151553900545220
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.6,
+        "box_width": 130,
+        "box_height": 58,
+        "box_area": 7540,
+        "relative_area_pct": 0.931,
+        "max_span_pct": 10.83,
+        "aspect_ratio": 2.24,
+        "explanation": "Noticeable road pothole (0.93% of frame, span 10.8%)",
+        "confidence": 0.17222417891025543,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          663,
+          362,
+          793,
+          420
+        ],
+        "risk_score": 2.6,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_10.jpg",
+        "dhash": 4349695456719234389
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          870,
+          360,
+          1088,
+          495
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_0.jpg",
+        "dhash": 1191418024224647377,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 1,
+        "box": [
+          589,
+          438,
+          780,
+          569
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_1.jpg",
+        "dhash": 3414539686156816804,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 2,
+        "box": [
+          0,
+          285,
+          337,
+          381
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_2.jpg",
+        "dhash": 3210831118137643375,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 3,
+        "box": [
+          716,
+          240,
+          906,
+          303
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_3.jpg",
+        "dhash": 4105295703221331818,
+        "severity": "SEVERE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 4,
+        "box": [
+          671,
+          372,
+          755,
+          415
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_4.jpg",
+        "dhash": 1958747919778083115,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 5,
+        "box": [
+          186,
+          425,
+          360,
+          515
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_5.jpg",
+        "dhash": 16391054210025687686,
+        "severity": "SEVERE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 6,
+        "box": [
+          763,
+          312,
+          839,
+          349
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_6.jpg",
+        "dhash": 7846723422246489807,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 7,
+        "box": [
+          321,
+          366,
+          451,
+          428
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_7.jpg",
+        "dhash": 4820617029439027736,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 8,
+        "box": [
+          1007,
+          250,
+          1077,
+          284
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_8.jpg",
+        "dhash": 73516832860670336,
+        "severity": "MINOR",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 9,
+        "box": [
+          1009,
+          252,
+          1063,
+          269
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_9.jpg",
+        "dhash": 4765151553900545220,
+        "severity": "MINOR",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 10,
+        "box": [
+          663,
+          362,
+          793,
+          420
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36B4F2_defect_10.jpg",
+        "dhash": 4349695456719234389,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 11,
+      "crack_count": 0,
+      "overall_severity": "CRITICAL",
+      "average_severity_score": 62.1,
+      "risk_category": "Critical"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 11,
+        "cracks": 0,
+        "overall_severity": "CRITICAL"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-D72843",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "blank.jpg",
+    "annotated_filename": "annotated_RS-20261114-D72843.jpg",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 05:05",
+    "timestamp": "2026-11-14T05:05:49.241502",
+    "final_potholes": 0,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 0,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "No detections (All Tiers)",
+    "overall_severity": "NONE",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 0,
+      "SEVERE": 0,
+      "CRITICAL": 0
+    },
+    "average_severity_score": 0.0,
+    "risk_category": "None",
+    "detections": [],
+    "potholes": [],
+    "summary": {
+      "pothole_count": 0,
+      "crack_count": 0,
+      "overall_severity": "NONE",
+      "average_severity_score": 0.0,
+      "risk_category": "None"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 0,
+        "cracks": 0,
+        "overall_severity": "NONE"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-F38753",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "pothole.webp",
+    "annotated_filename": "annotated_RS-20261114-F38753.jpg",
+    "location": "GPS: 12.971600, 77.594600",
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "altitude_m": null,
+    "location_source": "DEVICE_GEOLOCATION",
+    "location_metadata": {
+      "latitude": 12.9716,
+      "longitude": 77.5946,
+      "address": "GPS: 12.971600, 77.594600",
+      "location_source": "DEVICE_GEOLOCATION",
+      "has_gps": true
+    },
+    "date": "14 Nov 2026, 05:00",
+    "timestamp": "2026-11-14T05:00:49.325831",
+    "final_potholes": 1,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 1,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 1 (RDD2022)",
+    "overall_severity": "MODERATE",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 1,
+      "SEVERE": 0,
+      "CRITICAL": 0
+    },
+    "average_severity_score": 49.1,
+    "risk_category": "Medium",
+    "detections": [
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.1,
+        "box_width": 88,
+        "box_height": 24,
+        "box_area": 2112,
+        "relative_area_pct": 0.401,
+        "max_span_pct": 9.93,
+        "aspect_ratio": 3.67,
+        "explanation": "Noticeable road pothole (0.40% of frame, span 9.9%)",
+        "confidence": 0.21585555374622345,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "class_name": "Pothole",
+        "box": [
+          534,
+          186,
+          622,
+          210
+        ],
+        "risk_score": 0.9,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-F38753_defect_0.jpg",
+        "dhash": 1379072289797100654
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          534,
+          186,
+          622,
+          210
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-F38753_defect_0.jpg",
+        "dhash": 1379072289797100654,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 1,
+      "crack_count": 0,
+      "overall_severity": "MODERATE",
+      "average_severity_score": 49.1,
+      "risk_category": "Medium"
+    },
+    "duplicate_status": "NEEDS_MANUAL_REVIEW",
+    "duplicate_of": "RS-20261114-36EDC5",
+    "duplicate_candidates": [
+      {
+        "original_report_id": "RS-20261114-36EDC5",
+        "distance_m": 0.0,
+        "similarity_score": 0.647,
+        "decision": "NEEDS_MANUAL_REVIEW",
+        "reasons": [
+          "Geographic distance: 0.0 m (Matching radius: 25.0 m)",
+          "Visual Match: 65% (dHash: 100%, ORB: 0%, Hist: 99%)",
+          "Report falls inside radius, but visual similarity is moderate."
+        ],
+        "original_crop_path": "data/pothole_crops/RS-20261114-36EDC5_defect_0.jpg"
+      }
+    ],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 1,
+        "cracks": 0,
+        "overall_severity": "MODERATE"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-36EDC5",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "pothole.webp",
+    "annotated_filename": "annotated_RS-20261114-36EDC5.jpg",
+    "location": "GPS: 12.971600, 77.594600",
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "altitude_m": null,
+    "location_source": "DEVICE_GEOLOCATION",
+    "location_metadata": {
+      "latitude": 12.9716,
+      "longitude": 77.5946,
+      "address": "GPS: 12.971600, 77.594600",
+      "location_source": "DEVICE_GEOLOCATION",
+      "has_gps": true
+    },
+    "date": "14 Nov 2026, 04:59",
+    "timestamp": "2026-11-14T04:59:57.595111",
+    "final_potholes": 1,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 1,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 1 (RDD2022)",
+    "overall_severity": "MODERATE",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 1,
+      "SEVERE": 0,
+      "CRITICAL": 0
+    },
+    "average_severity_score": 49.1,
+    "risk_category": "Medium",
+    "detections": [
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.1,
+        "box_width": 88,
+        "box_height": 24,
+        "box_area": 2112,
+        "relative_area_pct": 0.401,
+        "max_span_pct": 9.93,
+        "aspect_ratio": 3.67,
+        "explanation": "Noticeable road pothole (0.40% of frame, span 9.9%)",
+        "confidence": 0.21585555374622345,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "risk_score": 0.9,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-36EDC5_defect_0.jpg",
+        "dhash": 1379072289797100654
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          534,
+          186,
+          622,
+          210
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-36EDC5_defect_0.jpg",
+        "dhash": 1379072289797100654,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 1,
+      "crack_count": 0,
+      "overall_severity": "MODERATE",
+      "average_severity_score": 49.1,
+      "risk_category": "Medium"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 1,
+        "cracks": 0,
+        "overall_severity": "MODERATE"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-416D5B",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "Mumbai-potholes-3_e.webp",
+    "annotated_filename": "annotated_RS-20261114-416D5B.jpg",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 04:53",
+    "timestamp": "2026-11-14T04:53:42.005716",
+    "final_potholes": 1,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 1,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 1 (RDD2022)",
+    "overall_severity": "MODERATE",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 1,
+      "SEVERE": 0,
+      "CRITICAL": 0
+    },
+    "average_severity_score": 48.7,
+    "risk_category": "Medium",
+    "detections": [
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.7,
+        "box_width": 83,
+        "box_height": 20,
+        "box_area": 1660,
+        "relative_area_pct": 0.18,
+        "max_span_pct": 6.48,
+        "aspect_ratio": 4.15,
+        "explanation": "Noticeable road pothole (0.18% of frame, span 6.5%)",
+        "confidence": 0.05460572987794876,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "risk_score": 0.2,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-416D5B_defect_0.jpg",
+        "dhash": 15478559167065789147
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          656,
+          255,
+          739,
+          275
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-416D5B_defect_0.jpg",
+        "dhash": 15478559167065789147,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 1,
+      "crack_count": 0,
+      "overall_severity": "MODERATE",
+      "average_severity_score": 48.7,
+      "risk_category": "Medium"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 1,
+        "cracks": 0,
+        "overall_severity": "MODERATE"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-F06FC8",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "media_filename": "Mumbai-potholes-3_e.webp",
+    "annotated_filename": "annotated_RS-20261114-F06FC8.jpg",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 04:53",
+    "timestamp": "2026-11-14T04:53:22.949479",
+    "final_potholes": 1,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 1,
+    "gemini_potholes": 0,
+    "conflict": false,
+    "model_used": "Tier 1 (RDD2022)",
+    "overall_severity": "MODERATE",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 1,
+      "SEVERE": 0,
+      "CRITICAL": 0
+    },
+    "average_severity_score": 48.7,
+    "risk_category": "Medium",
+    "detections": [
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 48.7,
+        "box_width": 83,
+        "box_height": 20,
+        "box_area": 1660,
+        "relative_area_pct": 0.18,
+        "max_span_pct": 6.48,
+        "aspect_ratio": 4.15,
+        "explanation": "Noticeable road pothole (0.18% of frame, span 6.5%)",
+        "confidence": 0.05460572987794876,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "risk_score": 0.2,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-F06FC8_defect_0.jpg",
+        "dhash": 15478559167065789147
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          656,
+          255,
+          739,
+          275
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-F06FC8_defect_0.jpg",
+        "dhash": 15478559167065789147,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 1,
+      "crack_count": 0,
+      "overall_severity": "MODERATE",
+      "average_severity_score": 48.7,
+      "risk_category": "Medium"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 1,
+        "cracks": 0,
+        "overall_severity": "MODERATE"
+      }
+    }
+  },
+  {
+    "inspection_id": "RS-20261114-AA7720",
+    "type": "Photo Inspection",
+    "media_type": "photo",
+    "location": "Location unavailable",
+    "latitude": null,
+    "longitude": null,
+    "altitude_m": null,
+    "location_source": "UNAVAILABLE",
+    "location_metadata": {
+      "latitude": null,
+      "longitude": null,
+      "address": "Location unavailable",
+      "location_source": "UNAVAILABLE",
+      "has_gps": false
+    },
+    "date": "14 Nov 2026, 03:20",
+    "final_potholes": 2,
+    "final_cracks": 0,
+    "longitudinal_cracks": 0,
+    "transverse_cracks": 0,
+    "alligator_cracks": 0,
+    "yolo_potholes": 2,
+    "gemini_potholes": 0,
+    "gemini_reason": "Gemini not called (No API Key)",
+    "conflict": false,
+    "model_used": "Tier 2 (Pothole)",
+    "overall_severity": "CRITICAL",
+    "severity_breakdown": {
+      "MINOR": 0,
+      "MODERATE": 1,
+      "SEVERE": 0,
+      "CRITICAL": 1
+    },
+    "average_severity_score": 72.7,
+    "risk_category": "Critical",
+    "detections": [
+      {
+        "severity_category": "CRITICAL",
+        "severity_score": 95.8,
+        "box_width": 270,
+        "box_height": 129,
+        "box_area": 34830,
+        "relative_area_pct": 3.032,
+        "max_span_pct": 16.88,
+        "aspect_ratio": 2.09,
+        "explanation": "Large surface footprint (3.03% of frame, span 16.9%)",
+        "confidence": 0.32086464762687683,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "risk_score": 22.4,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-AA7720_defect_0.jpg",
+        "dhash": 16168200825579627251
+      },
+      {
+        "severity_category": "MODERATE",
+        "severity_score": 49.5,
+        "box_width": 142,
+        "box_height": 84,
+        "box_area": 11928,
+        "relative_area_pct": 1.038,
+        "max_span_pct": 8.88,
+        "aspect_ratio": 1.69,
+        "explanation": "Noticeable road pothole (1.04% of frame, span 8.9%)",
+        "confidence": 0.26245564222335815,
+        "disclaimer": "Visual 2D estimate only. Does not measure physical depth, volume, or structural road sub-base integrity.",
+        "risk_score": 6.3,
+        "risk_category": "Low",
+        "crop_path": "data/pothole_crops/RS-20261114-AA7720_defect_1.jpg",
+        "dhash": 10679498266922572647
+      }
+    ],
+    "potholes": [
+      {
+        "pothole_idx": 0,
+        "box": [
+          15,
+          652,
+          285,
+          781
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-AA7720_defect_0.jpg",
+        "dhash": 16168200825579627251,
+        "severity": "CRITICAL",
+        "status": "NEW_REPORT"
+      },
+      {
+        "pothole_idx": 1,
+        "box": [
+          150,
+          994,
+          292,
+          1078
+        ],
+        "crop_path": "data/pothole_crops/RS-20261114-AA7720_defect_1.jpg",
+        "dhash": 10679498266922572647,
+        "severity": "MODERATE",
+        "status": "NEW_REPORT"
+      }
+    ],
+    "summary": {
+      "pothole_count": 2,
+      "crack_count": 0,
+      "overall_severity": "CRITICAL",
+      "average_severity_score": 72.7,
+      "risk_category": "Critical"
+    },
+    "verification_status": "AI_PENDING",
+    "verified_by": null,
+    "verified_at": null,
+    "corrected_class": null,
+    "corrected_severity": null,
+    "rejection_reason": null,
+    "original_ai_prediction": {
+      "potholes": 2,
+      "cracks": 0,
+      "overall_severity": "CRITICAL"
+    },
+    "duplicate_status": "NEW_REPORT",
+    "duplicate_of": null,
+    "duplicate_candidates": [],
+    "timestamp": "2026-11-14T03:21:03.999925",
+    "verification": {
+      "status": "AI_PENDING",
+      "verified_by": null,
+      "verified_at": null,
+      "corrected_class": null,
+      "corrected_severity": null,
+      "rejection_reason": null,
+      "original_ai_prediction": {
+        "potholes": 2,
+        "cracks": 0,
+        "overall_severity": "CRITICAL"
+      }
+    }
+  }
+]
